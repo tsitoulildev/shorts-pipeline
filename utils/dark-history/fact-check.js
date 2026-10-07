@@ -55,17 +55,35 @@ function checkFactsDeterministic(script, story) {
   return { passed: issues.length === 0, issues };
 }
 
+/**
+ * The verifier judges each narration sentence against its beat's EVIDENCE: the verbatim source sentences the deterministic
+ * stage has already proved are in the article. (It used to read the first 900 characters of the passage, which can miss the
+ * sentence the writer used and made a faithful script look unsupported.)
+ */
 function verifierPrompt(script, story) {
   const blocks = script.beats.map((beat, i) => {
+    const evidence = (Array.isArray(beat.evidence) ? beat.evidence : []).map(e => `- ${e}`).join('\n');
     const lines = sentencesOf(beat.narration).map((s, j) => `  ${i + 1}.${j + 1} ${s}`).join('\n');
-    return `PASSAGE ${i + 1}: ${story.plan.beats[i].text.slice(0, 900)}\nNARRATION ${i + 1}:\n${lines}`;
+    return `BEAT ${i + 1} (${story.plan.beats[i]?.heading || ''})
+EVIDENCE (copied from the source):
+${evidence}
+NARRATION:
+${lines}`;
   }).join('\n\n');
-  return `You are a strict fact-checker. For each narration sentence decide whether its PASSAGE states it or directly entails it.
-A sentence that adds a detail, cause, motive, emotion, number, name or certainty the passage does not contain is UNSUPPORTED. A theory stated as fact is UNSUPPORTED; a theory attributed to someone is fine.
+  return `You are a strict fact-checker for a true-story video. For each narration sentence decide whether the EVIDENCE of its beat states it or directly entails it.
+Supported: every fact in the sentence (who, what, when, where, how many) is in the evidence, possibly reworded or shortened.
+Unsupported: the sentence adds a detail, cause, motive, emotion, number, name or certainty the evidence does not contain, or states a theory as fact (a theory attributed to someone is fine).
+Do not reject a sentence only because it is shorter or worded differently from the evidence.
 
 ${blocks}
 
-Return JSON {"unsupported":["1.2","3.1"]} listing the unsupported sentence ids; an empty list means everything is supported.`;
+Return JSON only: {"unsupported":[{"id":"2.1","reason":"what the evidence does not contain"}]}. An empty list means every sentence is supported.`;
+}
+
+/** The reply as { unsupported: [...] }: a model sometimes wraps the object in an array. null when it is neither. */
+function unsupportedOf(parsed) {
+  const answer = Array.isArray(parsed) ? parsed.find(item => item && typeof item === 'object' && !Array.isArray(item) && 'unsupported' in item) : parsed;
+  return Array.isArray(answer?.unsupported) ? answer.unsupported : null;
 }
 
 /**
@@ -77,12 +95,14 @@ async function checkFacts(script, story, { verify, parseJson } = {}) {
   if (!deterministic.passed) return deterministic;
   if (typeof verify !== 'function') return { passed: false, issues: ['no LLM verifier available: the claims could not be checked'] };
   try {
-    const parsed = parseJson(await verify(verifierPrompt(script, story)));
-    if (!Array.isArray(parsed?.unsupported)) return { passed: false, issues: ['fact verifier returned an unusable answer'] };
-    const issues = parsed.unsupported.map(id => {
+    const unsupported = unsupportedOf(parseJson(await verify(verifierPrompt(script, story))));
+    if (!unsupported) return { passed: false, issues: ['fact verifier returned an unusable answer'] };
+    const issues = unsupported.map(item => {
+      const id = typeof item === 'object' && item !== null ? item.id : item;
+      const reason = typeof item === 'object' && item !== null && item.reason ? ` (${String(item.reason).slice(0, 120)})` : '';
       const [b, s] = String(id).split('.').map(Number);
       const sentence = sentencesOf(script.beats[b - 1]?.narration)[s - 1];
-      return `beat ${b}: the source does not support "${String(sentence || id).slice(0, 100)}"`;
+      return `beat ${b}: the source does not support "${String(sentence || id).slice(0, 100)}"${reason}`;
     });
     return { passed: issues.length === 0, issues };
   } catch (error) {
@@ -90,4 +110,4 @@ async function checkFacts(script, story, { verify, parseJson } = {}) {
   }
 }
 
-module.exports = { checkFacts, checkFactsDeterministic, verifierPrompt, properNouns, sentencesOf, norm };
+module.exports = { checkFacts, checkFactsDeterministic, verifierPrompt, unsupportedOf, properNouns, sentencesOf, norm };

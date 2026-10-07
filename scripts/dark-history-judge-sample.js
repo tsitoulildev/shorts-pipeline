@@ -124,5 +124,5 @@ async function main() {
   console.log(`\nReport saved: data/dark-history-reports/judge-${stamp}.md`);
 }
 
-if (require.main === module) main().catch(error => { console.error(error.message); process.exit(1); });
+if (require.main === module) main().then(() => process.exit(0), error => { console.error(error.message); process.exit(1); }); // exit: open provider handles kept the process alive
 module.exports = { instrument, toMarkdown };

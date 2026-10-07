@@ -48,6 +48,19 @@ const words = s => s.split(/\s+/).length;
   await rejects(faithful, /does not support/, verifyWith({ unsupported: ['2.1'] }));
   await rejects(faithful, /unusable answer/, verifyWith({ nope: true }));
   await rejects(faithful, /unavailable/, async () => { throw new Error('429 quota'); });
+  // Seen on the VM with a real model: the reply came wrapped in an array. That is the same answer, not an unusable one.
+  assert.strictEqual((await check(faithful, async () => JSON.stringify([clean]))).passed, true);
+  await rejects(faithful, /does not support/, async () => JSON.stringify([{ unsupported: ['2.1'] }]));
+  await rejects(faithful, /unusable answer/, async () => JSON.stringify({ unsupported: 'none' }));
+  await rejects(faithful, /unusable answer/, async () => '[]');
+  // The verifier gives its reason per sentence and the reason reaches the writer's revision notes.
+  await rejects(faithful, /adds a motive/, async () => JSON.stringify({ unsupported: [{ id: '2.1', reason: 'adds a motive' }] }));
+  // The verifier judges each sentence against the beat's EVIDENCE (the verbatim source sentences the deterministic stage
+  // already proved), not against the first 900 characters of the passage, which can miss the sentence the writer used.
+  const seen = [];
+  await check(faithful, async prompt => { seen.push(prompt); return JSON.stringify(clean); });
+  assert.ok(seen[0].includes('strict fact-checker') && /EVIDENCE/.test(seen[0]));
+  faithful.forEach(b => assert.ok(seen[0].includes(b.evidence[0]), 'the prompt carries every beat\'s evidence'));
   assert.match((await checkFacts(draft(faithful), story, {})).issues[0], /no LLM verifier/);
 
   // Prose editor: word budget, hook, art style words.
@@ -66,6 +79,26 @@ const words = s => s.split(/\s+/).length;
   assert.strictEqual(script.beats.length, story.plan.beats.length);
   assert.ok(prompts.some(p => /FACT-CHECK NOTES/.test(p) && /amount "Forty"/.test(p)), 'the rewrite prompt carries the fact-check issue');
   assert.ok(script.metadata.creativeReview.attempts.length >= 2);
+
+  // Seen on the VM: every rewrite fixed the flagged beat and broke another one, so three attempts never converged.
+  // A rewrite now gets the previous draft and may change ONLY the beats the notes name; the others are restored as they were.
+  const broken = mutate(1, { narration: `${faithful[1].narration} Forty-two sailors vanished.` });
+  const fixedButBreaksAnother = faithful.map((b, i) => (i === 2 ? { ...b, narration: `${b.narration} In 1999 it happened again.` } : b));
+  const seq = [JSON.stringify(draft(broken)), JSON.stringify(draft(fixedButBreaksAnother))];
+  const rewritePrompts = [];
+  const converge = { generateText: async prompt => {
+    if (/strict fact-checker/.test(prompt)) return JSON.stringify(clean);
+    rewritePrompts.push(prompt);
+    return seq.shift();
+  } };
+  const converged = await writeGroundedScript({ story, llm: converge, maxRevisions: 1 });
+  assert.strictEqual(converged.beats[2].narration, faithful[2].narration, 'a beat the notes did not name is restored from the previous draft');
+  assert.strictEqual(converged.beats[1].narration, faithful[1].narration, 'the flagged beat was rewritten');
+  assert.ok(/PREVIOUS DRAFT/.test(rewritePrompts[1]) && rewritePrompts[1].includes(broken[1].narration), 'the rewrite prompt carries the previous draft');
+  assert.ok(!/approved premise|Rewrite the full script/.test(rewritePrompts[1]), 'no horror wording in a documentary rewrite');
+
+  // Seen on the VM: the model spelled dates out ("eighteen seventy-two"), which no source sentence contains; the prompt asks for digits.
+  assert.ok(/as digits exactly as the evidence has them/.test(require('../utils/dark-history/grounded-writer').buildPrompt(story, null)));
 
   // Attribution reaches the description unchanged; an over-long one is rejected, never truncated.
   assert.ok(script.description.includes(story.attribution));

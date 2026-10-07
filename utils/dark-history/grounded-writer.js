@@ -12,21 +12,39 @@ const YT_DESCRIPTION_LIMIT = 4900;
 
 const wordCount = text => String(text || '').split(/\s+/).filter(Boolean).length;
 
-function buildPrompt(story, brief) {
+function buildPrompt(story, brief, previous = null) {
   const beats = story.plan.beats.map((beat, i) => `BEAT ${i + 1} (${beat.heading}). On screen: ${beat.images.map(img => img.title.replace(/\.(jpe?g|png)$/i, '')).join('; ')}\nSOURCE PASSAGE: ${beat.text.slice(0, 1800)}`).join('\n\n');
   return `You write a 35-45 second true-story narration for a YouTube Short about "${story.plan.title}". It must be accurate, plain and gripping.
 
 HARD RULES (a fact-checker rejects the whole script if one is broken):
 - Write exactly ${story.plan.beats.length} beats, one per source passage below, in order. 14-26 spoken words per beat, ${WORDS.min}-${WORDS.max} words in total.
 - Narrate ONLY what that beat's SOURCE PASSAGE states. No invented detail, emotion, motive, dialogue, name, number or place. A theory must be attributed ("investigators suspected...").
-- Every beat lists "evidence": 1-3 sentences copied VERBATIM from the source (at least 5 words each) that support the narration. Numbers, years and names in the narration must appear in that evidence.
+- Every beat lists "evidence": 1-3 sentences copied VERBATIM from the source (at least 5 words each) that support the narration. Numbers, years and names in the narration must appear in that evidence. Write every number, year and date as digits exactly as the evidence has them (1872, not "eighteen seventy-two"; December 4, not "the fourth"), and never state a number that is not in that beat's own evidence.
 - Beat 1 starts with a hook that states the real, most striking fact in under 14 words. No filler openers, no "imagine", no questions about the viewer.
 - Short sentences (under 20 words), no semicolons or dashes, plain ASCII. Past tense. Never mention drawings, animation or the video.
 - The last beat ends on the real unresolved fact or consequence, not on an invented twist.
 
 ${beats}
-${brief ? `\nEDITOR / FACT-CHECK NOTES ON THE PREVIOUS DRAFT (fix every point):\n${brief}\n` : ''}
+${brief ? `\nEDITOR / FACT-CHECK NOTES ON THE PREVIOUS DRAFT (fix every point):\n${notesOf(brief).map(note => `- ${note}`).join('\n')}\n` : ''}${previous ? `\nPREVIOUS DRAFT (JSON):\n${JSON.stringify({ title: previous.title, beats: previous.beats.map(b => ({ narration: b.narration, evidence: b.evidence })) })}\nRewrite ONLY the beats the notes name (a note about the hook is about beat 1) and return every other beat exactly as it is. A note without a beat number applies to the whole script.\n` : ''}
 Return JSON only: {"title":"under 70 characters, factual, no clickbait lies","beats":[{"narration":"","evidence":[""]}]}`;
+}
+
+/** Notes of a revision brief (the lines the review loop writes as "- note"). */
+const notesOf = brief => String(brief || '').split('\n').filter(line => line.startsWith('- ')).map(line => line.slice(2));
+
+/**
+ * Beat numbers (1-based) the notes name, or null when no note names a beat (then every beat may change).
+ * A note about the hook is about beat 1.
+ */
+function affectedBeats(brief) {
+  const named = new Set();
+  for (const note of notesOf(brief)) {
+    const beat = note.match(/^beat (\d+)\b/i);
+    if (beat) named.add(Number(beat[1]));
+    else if (/^the hook\b/i.test(note)) named.add(1);
+    // a note without a beat (word total, long sentence) does not unlock the other beats
+  }
+  return named.size ? named : null;
 }
 
 /** Documentary prose check (the horror heuristics do not apply: no twist, no cliche list). */
@@ -82,10 +100,22 @@ function buildDescription(script, story) {
  * `story` is a claimed story_pool row: { plan: { title, extract, beats }, attribution }. llm = an AITextService.
  */
 async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 2 }) {
+  let previous = null;
   const ask = (prompt, options) => llm.generateText(prompt, { task: 'script', responseMimeType: 'application/json', ...options });
   const script = await reviewedScriptLoop({
     maxRevisions, logger,
-    write: async brief => parseDraft(await ask(buildPrompt(story, brief), { maxTokens: 2200, temperature: brief ? 0.4 : 0.6 }), story),
+    write: async brief => {
+      const draft = parseDraft(await ask(buildPrompt(story, brief, previous), { maxTokens: 2200, temperature: brief ? 0.4 : 0.6 }), story);
+      const named = previous && affectedBeats(brief);
+      if (named) {
+        // A rewrite that fixes the flagged beat but breaks another one never converges; only the named beats may change.
+        draft.beats = draft.beats.map((beat, i) => (named.has(i + 1) || !previous.beats[i] ? beat : previous.beats[i]));
+        draft.fullScript = draft.beats.map(b => b.narration).join(' ');
+        draft.hook = sentencesOf(draft.beats[0]?.narration)[0] || '';
+      }
+      previous = draft;
+      return draft;
+    },
     review: draft => reviewGrounded(draft, story, prompt => ask(prompt, { task: 'packaging', maxTokens: 400, temperature: 0 }))
   });
   script.description = buildDescription(script, story);
@@ -94,4 +124,4 @@ async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 2
   return script;
 }
 
-module.exports = { writeGroundedScript, reviewGrounded, buildPrompt, buildDescription, proseIssues, parseDraft };
+module.exports = { writeGroundedScript, reviewGrounded, buildPrompt, buildDescription, proseIssues, parseDraft, affectedBeats };

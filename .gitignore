@@ -97,3 +97,6 @@ data/backups/
 data/story-pool/
 data/dark-history-reports/
 data/dark-history-output/
+
+# Runtime output (story pool images, reports, rendered videos, local proofs)
+/data/
