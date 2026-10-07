@@ -22,6 +22,22 @@ function properNouns(narration) {
   return [...new Set(out)];
 }
 
+/** The sentence of `text` that shares the most words with `claim` (at least 60% of the claim's words), or null. */
+function closestSentence(claim, text) {
+  const words = value => new Set(norm(value).replace(/[^a-z0-9' ]/g, ' ').split(' ').filter(word => word.length > 2));
+  const wanted = words(claim);
+  if (wanted.size < 4) return null;
+  let best = null;
+  let bestScore = 0;
+  for (const sentence of sentencesOf(text)) {
+    const have = words(sentence);
+    const shared = [...wanted].filter(word => have.has(word)).length;
+    const score = shared / wanted.size;
+    if (score > bestScore) { best = sentence; bestScore = score; }
+  }
+  return bestScore >= 0.6 ? best : null;
+}
+
 /** Deterministic checks. Returns { passed, issues[] } (issues name the beat and the offending text). */
 function checkFactsDeterministic(script, story) {
   const issues = [];
@@ -49,7 +65,10 @@ function checkFactsDeterministic(script, story) {
 
     // 1. every evidence sentence is verbatim in the source (this beat's passage first, the whole article otherwise)
     const proven = evidence.filter(e => norm(e).split(' ').length >= MIN_EVIDENCE_WORDS && (passage.includes(norm(e)) || extract.includes(norm(e))));
-    evidence.filter(e => !proven.includes(e)).forEach(e => issue(index, `${label}: evidence not found verbatim in the source: "${e.slice(0, 80)}"`));
+    evidence.filter(e => !proven.includes(e)).forEach(e => {
+      const near = closestSentence(e, `${beats[index].text} ${story.plan.extract}`);
+      issue(index, `${label}: evidence not found verbatim in the source: "${e.slice(0, 80)}"${near ? `; closest source sentence: "${near.slice(0, 200)}" (copy a sentence of the source exactly)` : ''}`);
+    });
     const evidenceText = norm(proven.join(' '));
 
     // 2. numbers, years and spelled-out amounts must come from the evidence

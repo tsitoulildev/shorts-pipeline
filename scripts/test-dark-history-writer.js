@@ -41,6 +41,14 @@ const fitOk = { judge: async () => JSON.stringify({ mismatch: [] }), readImage: 
   await rejects(mutate(2, { narration: `${faithful[2].narration} Captain Zebulon Smith screamed.` }), /Zebulon/);
   await rejects(mutate(0, { narration: `${faithful[0].narration} He whispered "we are doomed forever".` }), /invented quotation/);
   await rejects(mutate(3, { evidence: ['The captain secretly poisoned the entire crew before leaving.'] }), /not found verbatim/);
+  // Seen on the VM: the writer repeated the same slightly-off evidence on all four attempts. The issue now shows the closest sentence of
+  // the source so the next draft can copy it. A near miss (one word changed) points at the right sentence.
+  const real = story.plan.beats[3].text.split(/(?<=[.!?])\s+/).find(sentence => sentence.split(/\s+/).length >= 8);
+  const nearMiss = real.replace(/\b(\w{5,})\b/, 'altered');
+  const hinted = await check(mutate(3, { evidence: [nearMiss] }));
+  assert.ok(hinted.issues.some(issue => issue.includes('closest source sentence: "') && issue.includes(real.slice(0, 40))), hinted.issues.join(' | '));
+  const unrelated = await check(mutate(3, { evidence: ['Zebras graze quietly beside purple mountains at dawn today.'] }));
+  assert.ok(unrelated.issues.some(issue => /not found verbatim/.test(issue) && !/closest source sentence/.test(issue)), 'no hint when nothing is close');
   await rejects(mutate(3, { evidence: [] }), /no evidence/);
   await rejects(mutate(3, { evidence: ['The ship sailed.'] }), /not found verbatim/); // too short to prove anything
   await rejects(faithful.slice(0, 3), /one beat per footage beat/);
