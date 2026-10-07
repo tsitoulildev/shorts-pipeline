@@ -28,6 +28,17 @@ jobs:
         with:
           node-version: 24
 
+      - name: Install system FFmpeg (same Ubuntu 24.04 build as the Oracle runtime)
+        id: sysffmpeg
+        timeout-minutes: 6
+        continue-on-error: true
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo -E apt-get update -qq
+          sudo -E apt-get install -y -qq --no-install-recommends ffmpeg
+          /usr/bin/ffmpeg -version | head -1
+
       - name: Install fresh dependencies
         run: npm install --no-fund --no-audit
 
@@ -37,6 +48,10 @@ jobs:
       - name: Test
         id: unittests
         shell: bash
+        env:
+          # The tests render with the same system FFmpeg as production (the bundled ffmpeg-static has no drawtext filter).
+          FFMPEG_PATH: ${{ steps.sysffmpeg.outcome == 'success' && '/usr/bin/ffmpeg' || '' }}
+          FFPROBE_PATH: ${{ steps.sysffmpeg.outcome == 'success' && '/usr/bin/ffprobe' || '' }}
         run: |
           set -o pipefail
           npm test 2>&1 | tee test-output.log
@@ -54,17 +69,6 @@ jobs:
             console.log(`::error title=npm test failed::${clean(bad.join(" | ") || lines.slice(-6).join(" | "))}`);
             console.log(`::error title=npm test tail::${clean(lines.slice(-6).join(" | "))}`);
           '
-
-      - name: Install system FFmpeg (same Ubuntu 24.04 build as the Oracle runtime)
-        id: sysffmpeg
-        timeout-minutes: 6
-        continue-on-error: true
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          sudo -E apt-get update -qq
-          sudo -E apt-get install -y -qq --no-install-recommends ffmpeg
-          /usr/bin/ffmpeg -version | head -1
 
       - name: Horror Short end-to-end dry run (offline, no upload)
         id: dryrun
