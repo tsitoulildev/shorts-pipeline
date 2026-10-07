@@ -24,7 +24,7 @@ function buildSeo(script, story) {
  */
 async function produceDocumentaryShort({ story, script, narrate, workDir, signal }) {
   fs.mkdirSync(workDir, { recursive: true });
-  const narrationPath = path.join(workDir, 'narration.wav');
+  const narrationPath = path.join(workDir, 'narration.mp3');
   await narrate(script.beats.map(b => b.narration).join(' '), narrationPath);
   const render = await renderDocumentary({ script, imageFolder: story.plan.folder, narrationPath, outDir: workDir, signal });
   const thumbnailPath = await renderThumbnail({ imagePath: path.join(story.plan.folder, script.beats[0].images[0].file), title: script.title, outPath: path.join(workDir, 'thumbnail.jpg'), signal });
