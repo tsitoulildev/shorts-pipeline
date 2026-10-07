@@ -129,7 +129,7 @@ function buildDescription(script, story) {
  * writeGroundedScript({ story, llm }) -> script, or throws CREATIVE_REVIEW_REJECTED when no draft passes the fact-check.
  * `story` is a claimed story_pool row: { plan: { title, extract, beats }, attribution }. llm = an AITextService.
  */
-async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 2 }) {
+async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3 }) {
   let previous = null;
   const ask = (prompt, options) => llm.generateText(prompt, { task: 'script', responseMimeType: 'application/json', ...options });
   const script = await reviewedScriptLoop({

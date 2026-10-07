@@ -53,6 +53,8 @@ const words = s => s.split(/\s+/).length;
   await rejects(faithful, /does not support/, async () => JSON.stringify([{ unsupported: ['2.1'] }]));
   await rejects(faithful, /unusable answer/, async () => JSON.stringify({ unsupported: 'none' }));
   await rejects(faithful, /unusable answer/, async () => '[]');
+  // a real model answered with the list of flagged items directly: that is a verdict, and it rejects
+  await rejects(faithful, /beat 2: the source does not support .*adds a cause/, async () => JSON.stringify([{ id: '2.1', reason: 'adds a cause' }]));
   // The verifier gives its reason per sentence and the reason reaches the writer's revision notes.
   await rejects(faithful, /adds a motive/, async () => JSON.stringify({ unsupported: [{ id: '2.1', reason: 'adds a motive' }] }));
   // The verifier judges each sentence against the beat's EVIDENCE (the verbatim source sentences the deterministic stage
@@ -79,6 +81,22 @@ const words = s => s.split(/\s+/).length;
   assert.strictEqual(script.beats.length, story.plan.beats.length);
   assert.ok(prompts.some(p => /FACT-CHECK NOTES/.test(p) && /amount "Forty"/.test(p)), 'the rewrite prompt carries the fact-check issue');
   assert.ok(script.metadata.creativeReview.attempts.length >= 2);
+
+  // One round shows every problem: the verifier still runs when a beat failed a deterministic check, on the other beats.
+  // (Seen on the VM: each attempt peeled off one layer, deterministic first, then the verifier, and three attempts were not enough.)
+  const twoProblems = [];
+  const both = await check(mutate(1, { narration: `${faithful[1].narration} Forty-two sailors vanished.` }), async prompt => { twoProblems.push(prompt); return JSON.stringify({ unsupported: [{ id: '3.1', reason: 'adds a cause' }] }); });
+  assert.strictEqual(both.passed, false);
+  assert.ok(/beat 2: amount "Forty/.test(both.issues.join('|')) && /beat 3: the source does not support/.test(both.issues.join('|')), both.issues.join(' | '));
+  assert.ok(twoProblems.length === 1 && !twoProblems[0].includes('BEAT 2 ') && twoProblems[0].includes('BEAT 3 '), 'the beat with a deterministic issue is not shown to the verifier');
+  // a verifier that cannot answer does not hide the deterministic issues
+  const down = await check(mutate(1, { narration: `${faithful[1].narration} Forty-two sailors vanished.` }), async () => { throw new Error('429'); });
+  assert.ok(/amount "Forty/.test(down.issues.join('|')) && /unavailable/.test(down.issues.join('|')));
+  // every beat flagged deterministically: no verifier call is needed
+  let calls = 0;
+  const allBad = await check(faithful.map(b => ({ ...b, evidence: ['Not a sentence of the source at all.'] })), async () => { calls += 1; return JSON.stringify(clean); });
+  assert.strictEqual(allBad.passed, false);
+  assert.strictEqual(calls, 0);
 
   // A beat may be skipped when its passage adds nothing to the story: no narration, its picture and credit leave the video.
   // (Wikipedia sections are arbitrary: the real Mary Celeste draft had to cram a section about a later wreck into a 40 s story.)
