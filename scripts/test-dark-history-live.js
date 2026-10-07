@@ -37,19 +37,22 @@ const SENTENCES = [
 ];
 const wikiUrl = title => `https://en.wikipedia.org/wiki/${title.replace(/ /g, '_')}`;
 
-async function makeStory(dir, title = 'Mary Celeste') {
+// extraBeat: a 5th beat whose picture repeats the first one (the same scene at another size)
+async function makeStory(dir, title = 'Mary Celeste', { duplicates = 0, base = 4 } = {}) {
   const folder = path.join(dir, `images-${title.replace(/\W+/g, '_')}`);
   fs.mkdirSync(folder, { recursive: true });
-  const dims = [[1600, 1067], [1500, 600], [900, 1600], [1280, 960]];
+  const dims = [[1600, 1067], [1500, 600], [900, 1600], [1280, 960]].slice(0, base).concat(Array(duplicates).fill([1200, 800]));
   const beats = [];
   for (let i = 0; i < dims.length; i += 1) {
     const raw = path.join(folder, `raw${i}.png`);
-    await runFFmpeg(['-y', '-f', 'lavfi', '-i', `testsrc2=s=${dims[i][0]}x${dims[i][1]},format=rgb24`, '-frames:v', '1', '-update', '1', raw]);
+    if (i < base) await runFFmpeg(['-y', '-f', 'lavfi', '-i', `nullsrc=s=${dims[i][0]}x${dims[i][1]},geq=lum=random(${i * 13 + 1})*255:cb=128:cr=128,format=rgb24`, '-frames:v', '1', '-update', '1', raw]); // uncorrelated noise: far apart for the fingerprint
+    else await runFFmpeg(['-y', '-i', path.join(folder, 'first.png'), '-vf', `scale=${dims[i][0]}:${dims[i][1]}`, '-frames:v', '1', '-update', '1', raw]); // the first picture again at another size
+    if (i === 0) fs.copyFileSync(raw, path.join(folder, 'first.png'));
     const sha256 = crypto.createHash('sha256').update(fs.readFileSync(raw)).digest('hex');
     const file = `${sha256.slice(0, 16)}.png`;
     fs.renameSync(raw, path.join(folder, file));
     beats.push({
-      heading: `Beat ${i + 1}`, text: SENTENCES[i],
+      heading: `Beat ${i + 1}`, text: SENTENCES[i] || SENTENCES[0],
       images: [{ title: `${title} photo ${i + 1}.png`, file, sha256, width: dims[i][0], height: dims[i][1], mime: 'image/png', license: i === 1 ? 'CC BY 4.0' : 'Public domain', author: i === 1 ? 'A. Photographer' : null,
         descriptionUrl: `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(title)}_photo_${i + 1}.png`, fileUrl: `https://upload.wikimedia.org/wikipedia/commons/${i}/photo${i + 1}.png`, licenseUrl: null }]
     });
@@ -143,7 +146,7 @@ function makeLlm(mode = { writer: 'ok' }) {
   assert.deepStrictEqual(quality.checks.filter(c => c.blocking && !c.passed), [], JSON.stringify(quality.checks.filter(c => !c.passed)));
   assert.strictEqual(quality.passed, true);
   const ids = quality.checks.map(c => c.id);
-  for (const id of ['dh_footage_per_beat', 'dh_image_files_intact', 'dh_license_free_per_image', 'dh_claims_map_to_source', 'dh_attribution_in_description', 'dh_description_survives_upload', 'dh_voice_public_domain', 'dh_video_format', 'media_provenance', 'visual_diversity', 'media_attribution', 'provenance', 'narration', 'captions', 'thumbnail', 'video_file', 'av_sync']) {
+  for (const id of ['dh_footage_per_beat', 'dh_no_near_duplicate_images', 'dh_image_hold_limit', 'dh_images_fit_narration', 'dh_image_files_intact', 'dh_license_free_per_image', 'dh_claims_map_to_source', 'dh_attribution_in_description', 'dh_description_survives_upload', 'dh_voice_public_domain', 'dh_video_format', 'media_provenance', 'visual_diversity', 'media_attribution', 'provenance', 'narration', 'captions', 'thumbnail', 'video_file', 'av_sync']) {
     assert.ok(ids.includes(id), `check ${id} ran`);
   }
   assert.ok(!ids.some(id => /^horror_/.test(id)), 'no stickman check applies to a documentary');
@@ -165,6 +168,8 @@ function makeLlm(mode = { writer: 'ok' }) {
   await failsWith(c => { delete c.strategy.documentary; }, 'dh_footage_per_beat');
   await failsWith(c => { c.assets.finalVideo.path = path.join(dir, 'missing.mp4'); }, 'dh_video_format');
   await failsWith(c => { c.assets.video.provenance[0].license = ''; }, 'media_provenance');
+  await failsWith(c => { c.assets.video.scenePlan[0].duration = 20; }, 'dh_image_hold_limit');
+  await failsWith(c => { c.strategy.documentary.story.plan.beats[1].images[0].dhash = c.strategy.documentary.story.plan.beats[0].images[0].dhash; }, 'dh_no_near_duplicate_images');
   await failsWith(c => { c.seo.description = 'Credits removed. '.repeat(5); }, 'media_attribution');
 
   // ---- the orchestrator ----
@@ -297,6 +302,27 @@ function makeLlm(mode = { writer: 'ok' }) {
     assert.strictEqual(gated.scheduled.length, 0);
     assert.strictEqual((await db.getRow('SELECT status FROM story_pool WHERE id = ?', [tamperedId])).status, 'ready');
     await db.executeQuery("UPDATE story_pool SET status = 'rejected' WHERE id = ?", [tamperedId]);
+
+    // a beat whose picture repeats an earlier one falls (never shown twice); the Short is made from the rest
+    notices.length = 0;
+    await addToPool(pool, await makeStory(dir, 'Repeat Story', { duplicates: 1 }));
+    const repeatAgent = makeAgent({ llm: makeLlm() });
+    const repeatJob = await repeatAgent.queueScheduledContent({ source: 'scheduler' });
+    const repeatDone = await repeatAgent.waitForGenerationJob(repeatJob.id);
+    assert.strictEqual(repeatDone.status, 'completed', repeatDone.error);
+    assert.strictEqual(repeatAgent.scheduled[0].strategy.documentary.story.plan.beats.length, 4, 'the beat with the repeated picture is gone');
+    assert.ok(!JSON.stringify(repeatAgent.scheduled[0].seo.description).includes('photo 5'), 'its picture is not credited either');
+    // too few distinct pictures: the story is rejected at once (no retries), the owner is told why
+    notices.length = 0;
+    await addToPool(pool, await makeStory(dir, 'Twin Story', { duplicates: 1, base: 3 }));
+    await db.executeQuery("UPDATE story_pool SET status = 'rejected' WHERE status = 'ready' AND title != 'Twin Story'");
+    const twinAgent = makeAgent({ llm: makeLlm() });
+    const twinJob = await twinAgent.queueScheduledContent({ source: 'scheduler' });
+    const twinDone = await twinAgent.waitForGenerationJob(twinJob.id);
+    assert.strictEqual(twinDone.status, 'failed');
+    assert.match(twinDone.error, /only 3 distinct pictures remain/);
+    assert.strictEqual((await db.getRow("SELECT status FROM story_pool WHERE title = 'Twin Story'")).status, 'rejected', 'a story that can never be made is rejected at once');
+    assert.ok(notices.some(n => n.type === 'documentary_failure' && n.title.includes('rejected')));
 
     // pictures that do not fit their narration: no Short (the writer cannot fix it here), the owner is told; the pictures were really sent
     notices.length = 0;

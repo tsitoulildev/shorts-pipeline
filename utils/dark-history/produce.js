@@ -6,6 +6,7 @@ const { renderDocumentary, renderThumbnail } = require('./documentary-render');
 const { buildDescription, storyForScript } = require('./grounded-writer');
 const { checkDocumentaryProduction } = require('./documentary-gate');
 const { probeMediaStreams, getMediaDuration } = require('../ffmpeg');
+const { ensureHashes } = require('./dhash');
 
 // the documentary gate allows 60 s; refuse a longer narration before spending minutes on the render
 const MAX_NARRATION_SECONDS = 58;
@@ -28,6 +29,7 @@ function buildSeo(script, story) {
 async function produceDocumentaryShort({ story: poolStory, script, narrate, workDir, signal }) {
   // the beats the writer skipped are not shown and not credited: everything below works on the story as it is shown
   const story = storyForScript(poolStory, script);
+  await ensureHashes(story.plan.beats, story.plan.folder); // fingerprints for the near-duplicate gate (recorded on the story)
   fs.mkdirSync(workDir, { recursive: true });
   const narrationPath = path.join(workDir, 'narration.mp3');
   await narrate(script.beats.map(b => b.narration).join(' '), narrationPath);
@@ -43,7 +45,7 @@ async function produceDocumentaryShort({ story: poolStory, script, narrate, work
 
   const streams = await probeMediaStreams(render.videoPath);
   const video = { width: streams.width, height: streams.height, duration: render.duration, hasAudio: streams.hasAudio };
-  const gate = checkDocumentaryProduction({ story, script, description: seo.description, video });
+  const gate = checkDocumentaryProduction({ story, script, description: seo.description, video, segments: render.segments });
   return { videoPath: render.videoPath, thumbnailPath, seo, gate, render, video, story };
 }
 

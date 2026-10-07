@@ -21,7 +21,13 @@ const fixtureHttp = {
     if (!fs.existsSync(file) && params?.generator === 'search') return { query: { pages: [] } };
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   },
-  async getBuffer(url) { return Buffer.from(String(url)); }
+  // a deterministic noise picture per URL (a real PNG, so the fingerprint step works; different URLs are far apart)
+  async getBuffer(url) {
+    const seed = crypto.createHash('sha256').update(String(url)).digest();
+    const pixels = Buffer.alloc(64 * 64);
+    for (let i = 0; i < pixels.length; i += 1) pixels[i] = seed[(i * 7 + (i >> 6)) % 32] ^ ((i * 2654435761) >>> 24);
+    return require('sharp')(pixels, { raw: { width: 64, height: 64, channels: 1 } }).png().toBuffer();
+  }
 };
 
 const recordingHttp = {

@@ -8,6 +8,8 @@ const { writeGroundedScript } = require('./grounded-writer');
 const { produceDocumentaryShort } = require('./produce');
 const { makeNarrator, narrationCommand } = require('./narration');
 const { allowedCadencePerWeek } = require('./story-pool');
+const { pruneNearDuplicates } = require('./dhash');
+const { attributionText } = require('./attribution');
 
 const OUTPUT_DIR = path.join(__dirname, '..', '..', 'data', 'dark-history-output');
 const OUTPUT_KEEP_DAYS = 14;
@@ -93,7 +95,8 @@ function buildProductionData({ id = `prod_${Date.now()}_${crypto.randomBytes(5).
  * attempt (3 attempts reject the story).
  */
 async function releaseAfterFailure(pool, storyId, title, error, { cancelled = false } = {}) {
-  const outcome = await pool.release(storyId, { reason: `${error.code || 'error'}: ${error.message}`, countAttempt: !(cancelled || ['JOB_CANCELLED', 'VISION_UNAVAILABLE'].includes(error.code)) });
+  // a story that can never be made (too few distinct pictures) is rejected at once, not retried
+  const outcome = await pool.release(storyId, { reason: `${error.code || 'error'}: ${error.message}`, countAttempt: !(cancelled || ['JOB_CANCELLED', 'VISION_UNAVAILABLE'].includes(error.code)), maxAttempts: error.permanent ? 1 : undefined });
   error.storyTitle = title;
   error.storyId = storyId;
   error.attempts = outcome?.attempts ?? null;
@@ -113,6 +116,18 @@ async function produceFromPool({ pool, llm, generator, workRoot = OUTPUT_DIR, en
   const outDir = path.join(workRoot, `${story.plan.title.replace(/[^a-z0-9]+/gi, '_')}_${Date.now()}`);
   try {
     await onStage('strategy', 10, { storyId: story.id, topic: story.plan.title });
+    // A beat whose picture repeats an earlier one falls (never a repeat on screen); too few distinct pictures make the story ineligible.
+    const distinct = await pruneNearDuplicates(story.plan.beats, story.plan.folder);
+    if (distinct.dropped.length) {
+      if (distinct.beats.length < 4) {
+        throw failure('STORY_NOT_ELIGIBLE', `only ${distinct.beats.length} distinct pictures remain after dropping near-duplicates (${distinct.dropped.map(item => `${item.heading} repeats ${item.duplicateOf}`).join('; ')})`, { permanent: true });
+      }
+      story.plan.beats = distinct.beats;
+      story.attribution = attributionText({ title: story.plan.title, url: story.article_url }, distinct.beats);
+      logger.info?.(`Dark History: dropped ${distinct.dropped.length} beat(s) with a repeated picture (${distinct.dropped.map(item => item.heading).join(', ')})`);
+    } else {
+      story.plan.beats = distinct.beats;
+    }
     await onStage('script', 25);
     const script = await writeGroundedScript({ story, llm, logger });
     await onStage('production', 55);

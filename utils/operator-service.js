@@ -516,7 +516,8 @@ class OperatorService {
         video = { width: streams.width, height: streams.height, duration: await getMediaDuration(finalVideo.path), hasAudio: streams.hasAudio };
       } catch (_error) { video = null; }
       return checkDocumentaryProduction({
-        story: production.strategy.documentary?.story, script: production.script, description: production.seo?.description, video, audio: production.assets?.audio
+        story: production.strategy.documentary?.story, script: production.script, description: production.seo?.description, video, audio: production.assets?.audio,
+        segments: production.assets?.video?.scenePlan || []
       }).checks;
     } catch (error) {
       return [{ id: 'gate_error', passed: false, message: `the documentary gate could not run: ${String(error.message).slice(0, 160)}` }];

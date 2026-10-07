@@ -9,6 +9,7 @@ const { planFootage } = require('./footage');
 const { downloadImage } = require('./commons');
 const { vetArticle } = require('./event-vetting');
 const { attributionText } = require('./attribution');
+const { pruneNearDuplicates } = require('./dhash');
 const { TARGET_DAYS } = require('./story-pool');
 
 // Most stories need no judge call at all (editor-placed images suffice); a story that does needs about 8-12.
@@ -36,6 +37,10 @@ async function researchOne(title, { pool, http, judge, imageDir, now }) {
   if (!plan.eligible) return pool.add({ title, status: 'rejected', articleUrl: article.url, revisionId: article.revisionId, reason: `footage: ${plan.reason}` });
   const folder = path.join(imageDir, article.title.replace(/[^a-z0-9]+/gi, '_'));
   for (const beat of plan.beats) beat.images = await Promise.all(beat.images.map(image => downloadImage(image, folder, http)));
+  // near-duplicate pictures (two photographs of one object) are not allowed in a story: the repeating beat falls, too few left = not eligible
+  const distinct = await pruneNearDuplicates(plan.beats, folder);
+  if (distinct.beats.length < 4) return pool.add({ title, status: 'rejected', articleUrl: article.url, revisionId: article.revisionId, reason: `footage: only ${distinct.beats.length} distinct pictures after dropping near-duplicates` });
+  plan.beats = distinct.beats;
   return pool.add({
     title, status: 'ready', articleUrl: article.url, revisionId: article.revisionId, shareAlike: plan.shareAlike,
     plan: { title: article.title, extract: article.extract, license: article.license, folder, beats: plan.beats },
