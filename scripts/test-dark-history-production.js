@@ -18,10 +18,10 @@ const SENTENCES = [
   'Nobody who had been on board was ever seen again.'
 ];
 
-// four different scenes (the same pattern at another size would be a near-duplicate picture)
+// Four different stand-in photos. Seeded noise: the same pattern at another size, or flat test patterns (smptebars, gradients: random per run),
+// are near-duplicates for the fingerprint gate (CI failed on exactly that with 'gradients' vs 'smptebars').
 async function makeImage(file, width, height, index = 0) {
-  const source = ['testsrc2', 'smptebars', 'mandelbrot', 'gradients'][index % 4];
-  await runFFmpeg(['-y', '-f', 'lavfi', '-i', `${source}=s=${width}x${height},format=rgb24`, '-frames:v', '1', '-update', '1', file]);
+  await runFFmpeg(['-y', '-f', 'lavfi', '-i', `nullsrc=s=${width}x${height},geq=lum=random(${index * 13 + 1})*255:cb=128:cr=128,format=rgb24`, '-frames:v', '1', '-update', '1', file]);
 }
 
 (async () => {

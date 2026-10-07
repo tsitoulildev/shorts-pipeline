@@ -9,12 +9,13 @@ const { dhash, distance, pruneNearDuplicates } = require('../utils/dark-history/
 (async () => {
   assert.ok(await checkFFmpeg());
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dhash-'));
-  const make = async (name, source, size) => { await runFFmpeg(['-y', '-f', 'lavfi', '-i', `${source}=s=${size},format=rgb24`, '-frames:v', '1', '-update', '1', path.join(dir, name)]); return name; };
+  const noise = async (name, seed, size) => { await runFFmpeg(['-y', '-f', 'lavfi', '-i', `nullsrc=s=${size},geq=lum=random(${seed})*255:cb=128:cr=128,format=rgb24`, '-frames:v', '1', '-update', '1', path.join(dir, name)]); return name; };
+  const rescaled = async (name, from, size) => { await runFFmpeg(['-y', '-i', path.join(dir, from), '-vf', `scale=${size.replace('x', ':')}`, '-frames:v', '1', '-update', '1', path.join(dir, name)]); return name; };
   // the same scene at two sizes and recompressed (what two photographs of one desk look like to the hash) vs different scenes
-  const a = await make('a.png', 'testsrc2', '1600x1067');
-  const a2 = await make('a2.jpg', 'testsrc2', '1200x800');
-  const b = await make('b.png', 'smptebars', '1500x1000');
-  const c = await make('c.png', 'mandelbrot', '1280x960');
+  const a = await noise('a.png', 1, '1600x1067');
+  const a2 = await rescaled('a2.jpg', 'a.png', '1200x800');
+  const b = await noise('b.png', 14, '1500x1000');
+  const c = await noise('c.png', 27, '1280x960');
   const [ha, ha2, hb, hc] = await Promise.all([a, a2, b, c].map(name => dhash(path.join(dir, name))));
   assert.match(ha, /^[0-9a-f]{16}$/);
   assert.ok(distance(ha, ha2) <= 12, `same scene is a near-duplicate (${distance(ha, ha2)} bits)`);
