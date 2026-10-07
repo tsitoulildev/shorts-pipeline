@@ -191,13 +191,45 @@ const fitOk = { judge: async () => JSON.stringify({ mismatch: [] }), readImage: 
   await assert.rejects(() => writeGroundedScript({ story, llm: { generateText: async () => { writes += 1; return '{}'; } } }), error => error.code === 'VISION_UNAVAILABLE');
   assert.strictEqual(writes, 0, 'no vision model: nothing is written (fail before spending)');
   // the Gemini vision judge: pictures as inline data in order, then the prompt; falls through the free models; no client, no judge
-  assert.strictEqual(fitMod.makeVisionJudge({}), null);
+  assert.strictEqual(fitMod.makeVisionJudge({}, { env: {} }), null);
   const sent = [];
   const gemini = { models: { generateContent: async request => { sent.push(request); if (request.model === 'm1') throw new Error('503 overloaded'); return { text: '{"mismatch":[]}' }; } } };
   const judge = fitMod.makeVisionJudge({ gemini, model: 'm1' }, { models: ['m1', 'm2'] });
   assert.strictEqual(await judge({ prompt: 'P', images: [{ mimeType: 'image/jpeg', data: 'AAAA' }, { mimeType: 'image/jpeg', data: 'BBBB' }] }), '{"mismatch":[]}');
   assert.deepStrictEqual(sent.map(r => r.model), ['m1', 'm2']);
   assert.deepStrictEqual(sent[1].contents[0].parts.map(p => (p.inlineData ? p.inlineData.data : p.text)), ['AAAA', 'BBBB', 'P']);
+
+  // Vision failover (the free Gemini daily quota ran out on 2026-10-07 and every picture check failed): Gemini first, then the free
+  // vision models whose keys are configured; a spent quota rests the provider; an unusable answer moves on; text-only models never.
+  const posts = [];
+  const visionAnswers = { 'ministral-14b-latest': 'not json at all', 'mistral-medium-latest': '{"beats":[{"beat":1,"shows":"a ship","subject":"a ship","fits":true}]}' };
+  let clock = 1000;
+  const quotaGemini = { models: { generateContent: async () => { throw Object.assign(new Error('429 You exceeded your current quota'), { status: 429 }); } } };
+  const failover = fitMod.makeVisionJudge({ gemini: quotaGemini, model: 'g1' }, { models: ['g1'], env: { MISTRAL_API_KEY: 'k2' }, now: () => clock,
+    post: async (url, body, options) => { posts.push({ url, body, options }); return { data: { choices: [{ message: { content: visionAnswers[body.model] } }] } }; } });
+  assert.deepStrictEqual(failover.providers, ['Gemini g1', 'Mistral ministral-14b', 'Mistral medium']);
+  const validJson = text => { try { return Array.isArray(JSON.parse(text).beats); } catch (_e) { return false; } };
+  const reply = await failover({ prompt: 'P', images: [{ mimeType: 'image/jpeg', data: 'AAAA' }], validate: validJson });
+  assert.strictEqual(failover.lastProvider, 'Mistral medium', 'the first two providers failed (quota, unusable answer), the third answered');
+  assert.ok(validJson(reply));
+  assert.deepStrictEqual(posts.map(p => p.body.model), ['ministral-14b-latest', 'mistral-medium-latest']);
+  assert.match(posts[0].url, /api\.mistral\.ai\/v1\/chat\/completions$/);
+  assert.deepStrictEqual(posts[0].body.messages[0].content.map(part => part.type), ['image_url', 'text']);
+  assert.strictEqual(posts[0].body.messages[0].content[0].image_url.url, 'data:image/jpeg;base64,AAAA');
+  assert.strictEqual(posts[0].options.headers.Authorization, 'Bearer k2');
+  // the spent Gemini quota rests that provider (no new request to it), the unusable answer does not rest Mistral
+  posts.length = 0;
+  await failover({ prompt: 'P', images: [], validate: validJson });
+  assert.strictEqual(posts.length, 2, 'Mistral ministral is asked again, Gemini is resting');
+  clock += 31 * 60000;
+  let geminiCalls = 0;
+  quotaGemini.models.generateContent = async () => { geminiCalls += 1; return { text: '{"beats":[]}' }; };
+  assert.ok(await failover({ prompt: 'P', images: [], validate: validJson }));
+  assert.strictEqual(geminiCalls, 1, 'after the rest Gemini is asked again');
+  // every provider failing is an error (the caller turns it into VISION_UNAVAILABLE); no keys, no judge; one provider can be chosen
+  await assert.rejects(() => fitMod.makeVisionJudge({}, { env: { MISTRAL_API_KEY: 'k' }, post: async () => { throw new Error('503'); } })({ prompt: 'P', images: [] }), /503/);
+  assert.strictEqual(fitMod.makeVisionJudge({}, { env: {} }), null);
+  assert.deepStrictEqual(fitMod.makeVisionJudge({ gemini: quotaGemini, model: 'g' }, { env: { MISTRAL_API_KEY: 'k' }, only: 'medium' }).providers, ['Mistral medium']);
 
   // Seen on the VM: every rewrite fixed the flagged beat and broke another one, so three attempts never converged.
   // A rewrite now gets the previous draft and may change ONLY the beats the notes name; the others are restored as they were.
