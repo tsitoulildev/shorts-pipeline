@@ -31,6 +31,11 @@ assert.ok(!/(API_KEY|TOKEN|SECRET)/.test(piper), 'install-piper must not touch s
 
 // Only the operator-run activation script may turn uploads on; rollout never edits the switch.
 const rollout = read('deploy/oracle-vm/rollout.sh');
+// The tests and the dry run in rollout.sh must use the SAME FFmpeg as the service (the system build): the bundled
+// ffmpeg-static has no `drawtext` filter, so the documentary thumbnail test failed during the first deploy.
+assert.ok(/^export FFMPEG_PATH=\/usr\/bin\/ffmpeg$/m.test(rollout) && /^export FFPROBE_PATH=\/usr\/bin\/ffprobe$/m.test(rollout), 'rollout must export the system FFmpeg before lint/tests/dry run');
+assert.ok(rollout.indexOf('export FFMPEG_PATH=') < rollout.indexOf('npm test'), 'FFMPEG_PATH must be exported before npm test');
+assert.ok(/FFMPEG_PATH=\/usr\/bin\/ffmpeg/.test(read('deploy/oracle-vm/youtube-agent.service')), 'the service unit uses the same system FFmpeg');
 assert.ok(!/YOUTUBE_UPLOAD_ENABLED\s*=/.test(rollout.replace(/^\s*#.*$/gm, '')), 'rollout must not set YOUTUBE_UPLOAD_ENABLED');
 assert.ok(rollout.includes('--ff-only'), 'rollout must fast-forward only');
 assert.ok(!/push\s+(-f|--force)|reset --hard/.test(rollout), 'rollout must not rewrite history');
