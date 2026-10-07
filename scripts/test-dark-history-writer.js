@@ -140,6 +140,10 @@ const fitOk = { judge: async () => JSON.stringify({ mismatch: [] }), readImage: 
   assert.deepStrictEqual(fitMod.mismatchesOf({ mismatch: [] }), []);
   assert.deepStrictEqual(fitMod.mismatchesOf([{ mismatch: [{ beat: 2 }] }]), [{ beat: 2 }]);
   assert.strictEqual(fitMod.mismatchesOf({ nope: 1 }), null);
+  // per-beat verdicts: only fits === true passes, a beat without a verdict is a mismatch, a bare array is accepted
+  assert.deepStrictEqual(fitMod.mismatchesOf({ beats: [{ beat: 1, fits: true }, { beat: 2, shows: 'a waterspout', subject: 'pirates', fits: false }] }, [1, 2, 3]).map(m => m.beat), [2, 3]);
+  assert.match(fitMod.mismatchesOf([{ beat: 2, shows: 'a waterspout', subject: 'pirates', fits: false }], [2])[0].reason, /shows a waterspout, the narration is about pirates/);
+  assert.deepStrictEqual(fitMod.mismatchesOf([{ beat: 1, fits: 'yes' }], [1]).map(m => m.beat), [1], 'only true counts');
   assert.strictEqual(fitMod.mismatchesOf([]), null);
   const seenFit = [];
   const flagging = { readImage: async file => ({ mimeType: 'image/jpeg', data: String(file).slice(-4) }), judge: async ({ prompt, images }) => { seenFit.push({ prompt, images }); return JSON.stringify({ mismatch: [{ beat: 2, reason: 'the picture shows a waterspout' }] }); } };
@@ -160,7 +164,7 @@ const fitOk = { judge: async () => JSON.stringify({ mismatch: [] }), readImage: 
   const fitPrompts = [];
   let mismatchOnce = true;
   const fitLlm = { generateText: async prompt => { if (/strict fact-checker/.test(prompt)) return JSON.stringify(clean); fitPrompts.push(prompt); return JSON.stringify(fitPrompts.length === 1 ? draft(faithful) : { title: 'The Ship Found Empty', beats: faithful.map((b, i) => (i === 2 ? { skip: true } : b)) }); } };
-  const fitFlow = await writeGroundedScript({ story, llm: fitLlm, maxRevisions: 2, imageFit: { readImage: fitOk.readImage, judge: async ({ prompt }) => { if (/what the picture shows|say in one short sentence/.test(prompt)) return JSON.stringify({ pictures: [] }); const answer = mismatchOnce ? { mismatch: [{ beat: 3, reason: 'a lap desk is not the cargo' }] } : { mismatch: [] }; mismatchOnce = false; return JSON.stringify(answer); } } });
+  const fitFlow = await writeGroundedScript({ story, llm: fitLlm, maxRevisions: 2, imageFit: { readImage: fitOk.readImage, judge: async ({ prompt }) => { if (/say in one short sentence/.test(prompt)) return JSON.stringify({ pictures: [] }); const answer = mismatchOnce ? { mismatch: [{ beat: 3, reason: 'a lap desk is not the cargo' }] } : { mismatch: [] }; mismatchOnce = false; return JSON.stringify(answer); } } });
   assert.ok(/beat 3: the picture does not show what the narration says/.test(fitPrompts[1]), 'the picture mismatch is in the rewrite notes');
   assert.deepStrictEqual(fitFlow.metadata.creativeReview.imageFit, { passed: true, checkedBeats: faithful.length - 1 });
   assert.ok(!fitFlow.sourceBeatIndexes.includes(2), 'the beat whose picture did not fit was dropped, not filled');
