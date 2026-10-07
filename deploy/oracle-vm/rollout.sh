@@ -23,6 +23,12 @@ fail() {
 [[ "$(git branch --show-current)" == "main" ]] || fail "runtime is not on main"
 [[ -z "$(git status --porcelain --untracked-files=no)" ]] || fail "tracked files changed on the VM; review before deploying"
 
+# Lint, tests and the dry run must use the same FFmpeg as the service (the unit sets the same paths): the bundled
+# ffmpeg-static has no `drawtext` filter, so the documentary thumbnail test failed during the first deploy.
+[[ -x /usr/bin/ffmpeg && -x /usr/bin/ffprobe ]] || fail "system FFmpeg is missing (sudo apt install -y ffmpeg); nothing was changed"
+export FFMPEG_PATH=/usr/bin/ffmpeg
+export FFPROBE_PATH=/usr/bin/ffprobe
+
 before="$(git rev-parse HEAD)"
 # Commit the running service was last restarted on. The Deploy workflow fast-forwards the
 # checkout BEFORE this script starts, so before == after there and "code changed" cannot
