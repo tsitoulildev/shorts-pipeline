@@ -1,0 +1,4 @@
+# Keep every text file LF in the repository (the shell scripts run on Ubuntu and a CR breaks them).
+* text=auto eol=lf
+*.sh text eol=lf
+*.service text eol=lf

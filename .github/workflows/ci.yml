@@ -1,0 +1,141 @@
+name: Security CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Pinned to the Oracle runtime's OS so the system FFmpeg build matches production.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      API_KEY: ci-test-key-only
+      HOST: 127.0.0.1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install fresh dependencies
+        run: npm install --no-fund --no-audit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        id: unittests
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee test-output.log
+
+      - name: Annotate test failure
+        if: failure() && steps.unittests.outcome == 'failure'
+        shell: bash
+        run: |
+          # Surface the decisive lines in the check annotations (logs need a login to read).
+          node -e '
+            const text = require("fs").readFileSync("test-output.log", "utf8").replace(/\x1b\[[0-9;]*m/g, "");
+            const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+            const bad = lines.filter(l => /error|assert|fail|expected|actual|cannot|not found|ERR_/i.test(l)).slice(-8);
+            const clean = v => String(v).replace(/[\r\n]+/g, " ").slice(0, 700);
+            console.log(`::error title=npm test failed::${clean(bad.join(" | ") || lines.slice(-6).join(" | "))}`);
+            console.log(`::error title=npm test tail::${clean(lines.slice(-6).join(" | "))}`);
+          '
+
+      - name: Install system FFmpeg (same Ubuntu 24.04 build as the Oracle runtime)
+        id: sysffmpeg
+        timeout-minutes: 6
+        continue-on-error: true
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo -E apt-get update -qq
+          sudo -E apt-get install -y -qq --no-install-recommends ffmpeg
+          /usr/bin/ffmpeg -version | head -1
+
+      - name: Horror Short end-to-end dry run (offline, no upload)
+        id: dryrun
+        env:
+          FFMPEG_PATH: ${{ steps.sysffmpeg.outcome == 'success' && '/usr/bin/ffmpeg' || '' }}
+          FFPROBE_PATH: ${{ steps.sysffmpeg.outcome == 'success' && '/usr/bin/ffprobe' || '' }}
+        run: npm run dry-run:horror
+
+      - name: Summarize dry-run result
+        if: always() && (steps.dryrun.outcome == 'success' || steps.dryrun.outcome == 'failure')
+        shell: bash
+        run: |
+          report=artifacts/horror-short-dry-run-report.json
+          if [ ! -f "$report" ]; then
+            echo "::error title=Horror dry run failed::no report written"
+            exit 0
+          fi
+          node -e '
+            const r = require("./" + process.argv[1]);
+            const clean = v => String(v || "").replace(/[\r\n]+/g, " ").slice(0, 900);
+            if (r.status === "success") {
+              const passed = (r.checks || []).filter(c => c.passed).length;
+              console.log(`::notice title=Horror dry run passed::${passed}/${(r.checks || []).length} checks, QA ${r.qualityScore}, topic "${clean(r.topic)}", title "${clean(r.title)}"`);
+              const media = (r.checks || []).find(c => c.id === "media_measurements");
+              if (media) console.log(`::notice title=Measured media (audio, captions, hook)::${clean(media.detail)}`);
+            } else {
+              console.log(`::error title=Horror dry run failed::${clean(r.error || r.status)}`);
+            }
+          ' "$report"
+
+      - name: Horror Short dry run with animated beats (ANIMATED_SCENES=true, offline, no upload)
+        id: dryrunanimated
+        env:
+          ANIMATED_SCENES: 'true'
+          FFMPEG_PATH: ${{ steps.sysffmpeg.outcome == 'success' && '/usr/bin/ffmpeg' || '' }}
+          FFPROBE_PATH: ${{ steps.sysffmpeg.outcome == 'success' && '/usr/bin/ffprobe' || '' }}
+        run: npm run dry-run:horror
+
+      - name: Summarize animated dry-run result
+        if: always() && (steps.dryrunanimated.outcome == 'success' || steps.dryrunanimated.outcome == 'failure')
+        shell: bash
+        run: |
+          report=artifacts/horror-short-dry-run-report-animated.json
+          if [ ! -f "$report" ]; then
+            echo "::error title=Animated dry run failed::no report written"
+            exit 0
+          fi
+          node -e '
+            const r = require("./" + process.argv[1]);
+            const clean = v => String(v || "").replace(/[\r\n]+/g, " ").slice(0, 900);
+            const find = id => (r.checks || []).find(c => c.id === id);
+            if (r.status === "success") {
+              const passed = (r.checks || []).filter(c => c.passed).length;
+              console.log(`::notice title=Animated dry run passed::${passed}/${(r.checks || []).length} checks, QA ${r.qualityScore}`);
+              for (const id of ["animated_beats", "media_measurements"]) {
+                const item = find(id);
+                if (item) console.log(`::notice title=Animated ${id}::${clean(item.detail)}`);
+              }
+            } else {
+              console.log(`::error title=Animated dry run failed::${clean(r.error || r.status)}`);
+            }
+          ' "$report"
+
+      - name: Upload horror dry-run report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: horror-short-dry-run-report
+          path: artifacts/horror-short-dry-run-report*.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Audit high severity vulnerabilities
+        run: npm audit --audit-level=high

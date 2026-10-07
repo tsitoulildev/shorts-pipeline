@@ -1,0 +1,93 @@
+{
+  "note": "Story structures for 90-140 word horror Shorts, written from general short-horror craft (two-sentence horror, rules stories, night-shift accounts). The seeds are original and only show the SHAPE; the planner must invent a new person, place and detail for each idea.",
+  "structures": [
+    {
+      "id": "the-rule",
+      "name": "The rule nobody explains",
+      "shape": "A new person is told one odd rule (a door, a phone, a floor, a time). They keep it until one night they cannot. The break shows why the rule exists, and the last line shows the rule was written for someone like them.",
+      "twist": "The reason for the rule is revealed by one concrete image, never by explanation.",
+      "seeds": [
+        "A new night guard is told never to answer the lobby intercom after three, and tonight the intercom says his own name.",
+        "A babysitter is told never to look at the monitor after the child sleeps, and tonight the monitor shows the child awake and smiling at the camera.",
+        "A hotel cleaner is told to skip room 414 on Tuesdays, and tonight the door is open and the bed is already made for her."
+      ]
+    },
+    {
+      "id": "the-detail-that-does-not-fit",
+      "name": "The detail that does not fit",
+      "shape": "Someone close (a roommate, a parent, a coworker) is wrong in one small observable way. The narrator tests it, the test confirms it, and the last line changes what the narrator thought was normal.",
+      "twist": "The wrong detail turns out to be the only normal thing left.",
+      "seeds": [
+        "A man notices his wife has stopped blinking, counts for ten minutes to prove it, and then realises he cannot remember when he last blinked himself.",
+        "A student notices her roommate always comes home at 2:10 and never uses the key, and tonight she waits behind the door.",
+        "A son notices his father hums the same four notes every night and learns that the notes are the tune of the doorbell."
+      ]
+    },
+    {
+      "id": "the-sound-next-door",
+      "name": "The sound from where nobody is",
+      "shape": "A sound comes from a room, floor or flat that should be empty. The narrator goes closer, each step costs something, and the last line says who or what has been listening back.",
+      "twist": "The narrator learns the sound is an answer to something they did earlier.",
+      "seeds": [
+        "A tenant hears slow typing from the empty flat above and slides a note under the door asking them to stop, and the typing answers with the note's own words.",
+        "A woman hears someone practise piano in the sealed basement every night at the same time and finally goes down to find the lid up and her own sheet music open.",
+        "A night nurse hears a call bell from a room that was closed yesterday, and the bell is wired to her pocket."
+      ]
+    },
+    {
+      "id": "the-routine-one-step-wrong",
+      "name": "The routine with one step wrong",
+      "shape": "Describe a calm daily routine in short exact steps. One step is slightly wrong. Repeat the routine and the wrong step grows. The last line reveals that the routine itself was the trap.",
+      "twist": "The ending replays the first step with its true meaning.",
+      "seeds": [
+        "A man locks up the shop each night and counts nine lights off, and tonight he counts ten.",
+        "A girl walks home the same way each night and there is always one more streetlight out, and tonight it is the one above her door.",
+        "A driver does the same ten minute delivery route and tonight the last address is his own house."
+      ]
+    },
+    {
+      "id": "the-favour",
+      "name": "The favour that costs more than it says",
+      "shape": "A stranger or a neighbour asks for a small favour (hold a key, take a parcel, answer a call). The narrator agrees for a good reason. The favour has one condition, the narrator breaks it, and the last line shows the price.",
+      "twist": "The favour was never for the person who asked.",
+      "seeds": [
+        "A neighbour asks a woman to keep a spare key but never to use it, and tonight the key is warm and the lock turns by itself.",
+        "A stranger at a bus stop asks a boy to hold a phone that is ringing, and the screen shows a photo of the boy asleep.",
+        "A landlord asks a tenant to water one plant and never to move it, and tonight the plant has been moved to face his bed."
+      ]
+    },
+    {
+      "id": "the-countdown",
+      "name": "The countdown that finishes",
+      "shape": "Something happens at the same time every night and a little closer each time (a knock, a light, a footstep). The narrator sets a trap or a plan, and the last line says what is already inside the plan.",
+      "twist": "The distance the narrator has been measuring was the distance to themselves.",
+      "seeds": [
+        "A woman hears footsteps climb one more stair each night and puts a camera on the staircase, and on the recording the steps start from her bedroom.",
+        "A man sees a light come one window closer across the courtyard each night and counts that tonight it will be his own window.",
+        "A boy hears the ice cream van stop one house nearer every evening and tonight it stops outside the house with its music off."
+      ]
+    },
+    {
+      "id": "the-recording",
+      "name": "The recording that shows more",
+      "shape": "A camera, voicemail or photo shows something the narrator did not notice while it happened. They watch it twice, find the detail, and the last line is what they notice about the room they are sitting in now.",
+      "twist": "The recording was made from where the narrator is sitting now.",
+      "seeds": [
+        "A man checks his doorbell camera for a missed parcel and sees someone standing behind him in every clip, and the person is dressed like him.",
+        "A woman plays a voicemail from her sister and hears a second breathing under the words, from the room she is in.",
+        "A guard rewinds the lobby tape and sees the front door open for nobody, once every hour, and the next hour is now."
+      ]
+    },
+    {
+      "id": "two-sentence",
+      "name": "Two sentences that change meaning",
+      "shape": "Four to six short beats that build a gentle, ordinary picture (a bedtime, a call, a car ride) and then one final sentence that reverses who is safe and who is not.",
+      "twist": "The reversal is in one plain sentence that the viewer has to re-read the whole story to understand.",
+      "seeds": [
+        "A mother tells the child to stay quiet while the footsteps pass the wardrobe, and the child whispers that those are the footsteps that put her there.",
+        "A man talks his lost daughter through the dark over the phone and she says she can see his torch, but he is calling from the car.",
+        "A woman is glad the stranger in the lift pressed her floor for her, because she did not tell anyone where she lives."
+      ]
+    }
+  ]
+}

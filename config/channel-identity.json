@@ -1,0 +1,91 @@
+{
+  "version": 2,
+  "workingIdentity": "Horror Stickman — Original Psychological Micro-Horror",
+  "language": "English",
+  "format": "Faceless dark-stickman animated YouTube Shorts",
+  "corePromise": "Ordinary situations become impossible, unsettling, and unforgettable in under 45 seconds.",
+  "audience": "Global English-speaking viewers who enjoy psychological horror, scary micro-stories, uncanny everyday situations, creepy fiction, and visually distinctive Shorts.",
+  "primaryFormat": {
+    "type": "short",
+    "targetSeconds": [20, 45],
+    "targetWords": [90, 140],
+    "shortsRole": "Core channel identity and primary publishing surface."
+  },
+  "contentPillars": [
+    {"id":"everyday-uncanny","label":"Everyday Situations Gone Wrong","keywords":["apartment","door","wall","neighbor","phone","message","bedroom","kitchen"]},
+    {"id":"liminal-night","label":"Liminal & Night-Shift Horror","keywords":["night shift","hallway","stairwell","elevator","parking garage","empty office","hotel"]},
+    {"id":"impossible-signals","label":"Impossible Messages, Voices & Sounds","keywords":["text message","call","voice","knocking","recording","camera","intercom"]},
+    {"id":"reflection-space","label":"Reflections & Impossible Spaces","keywords":["mirror","reflection","window","room","floor","corridor","doorway"]},
+    {"id":"loops-presence","label":"Loops, Repetition & Unseen Presence","keywords":["loop","repeat","shadow","footsteps","presence","surveillance","time"]}
+  ],  "storyCriteria": [
+    "Hook lands within the first 1-1.5 seconds.",
+    "Premise is understandable from one sentence and one visual.",
+    "The situation begins ordinary enough to feel relatable.",
+    "Tension escalates at least twice.",
+    "The ending contains a twist, climax, or disturbing unresolved beat.",
+    "The story fits 20-45 seconds and normally 90-140 spoken words.",
+    "The story supports 4-7 distinct visual beats.",
+    "The premise and twist are not semantic duplicates of recent uploads.",
+    "The story remains effective without graphic gore."
+  ],
+  "avoid": [
+    "Comedy or bright childlike visuals.",
+    "Graphic gore as the main appeal.",
+    "True-crime dependence or real-person accusations.",
+    "Fake true-story framing.",
+    "Generic monster appears stories.",
+    "Near-duplicate premises, hooks, or twists.",
+    "Copyrighted horror characters or obvious story copies.",
+    "Mass-produced noun-swap templates.",
+    "Long exposition before the threat appears."
+  ],
+  "anglePrinciples": [
+    "Open on the unsettling contradiction before explanation.",
+    "Use one fear mechanism and escalate it.",
+    "Prefer implication, repetition, impossible sound, spatial contradiction, reflection, or message-based fear.",
+    "Make each visual beat materially change the viewer's understanding.",
+    "Preserve the strongest recontextualization for the ending."
+  ],  "fallbackTopics": [
+    "He Heard Knocking From Inside the Wall — Then It Answered His Steps",
+    "The Smoke Detector Chirped Once for Every Person in the Room — Then One More",
+    "The Elevator Opened on a Floor That Wasn't on the Buttons",
+    "The Parking Garage Level Numbers Went Down Every Time He Drove Up",
+    "The Night Guard Saw Himself on a Camera From Tomorrow",
+    "Every Night the Door Chain Was Locked From the Outside",
+    "The Night Bus Announced a Stop Named After His Street",
+    "Someone Kept Turning Off the Hallway Light One Door Closer",
+    "The Apartment Above Him Had Been Empty for Ten Years",
+    "His Phone Connected to Bluetooth Headphones He Didn't Own",
+    "The Hotel Mirror Showed a Door That Wasn't in the Room",
+    "At 3:17 AM the Knocking Started Inside the Closet Wall",
+    "The Stairwell Added One More Floor Every Time He Looked Down",
+    "The Laundromat Dryer Kept Finishing a Cycle Nobody Started",
+    "The Security Camera Kept Showing Someone Standing Behind Him"
+  ],
+  "thumbnailIdentity": {
+    "objective": "Create a scroll-stopping first frame and consistent Dark Stickman packaging without spoiling the twist.",
+    "principles": [
+      "One dominant fear cue.",
+      "Black or near-black stickman silhouette.",
+      "Dark charcoal/navy environment with restrained deep-red accent only when useful.",
+      "High contrast and mobile readability.",
+      "Text optional; normally 1-3 words maximum.",
+      "First frame is more important than thumbnail for Shorts.",
+      "No gore, clutter, bright colors, comedy, or childlike cartoon styling."
+    ],
+    "archetypes": [
+      {"id":"impossible-presence","label":"Impossible Presence","intent":"A figure, shadow, reflection, or silhouette where it should not be."},
+      {"id":"wrong-space","label":"Wrong Space","intent":"A door, corridor, room, floor, mirror, or opening behaving impossibly."},
+      {"id":"signal-threat","label":"Signal Threat","intent":"A phone, message, camera, intercom, or recording reveals an impossible threat."}
+    ],
+    "avoid": ["Bright colors","Comedy","Gore","Visual clutter","Generic reaction faces","Children's cartoon aesthetics","Spoiling the final twist"]
+  },  "publishingCadence": {
+    "shortsPerDay": {"min":2,"target":3,"max":4,"scaleCeiling":20},
+    "initialPolicy": "Start with 2-4 high-quality Shorts per day (target 3). Scale only when analytics confirms originality, retention, and production quality remain stable.",
+    "schedulingPolicy": "Autonomous mode assigns safe Shorts publish slots and later adapts timing from real channel audience data.",
+    "qualityPolicy": "Cadence is subordinate to originality and quality. Failed hook, twist, duplicate, brand, render, narration, caption, packaging, cadence, or upload gates reject or delay the item."
+  },
+  "channelName": "Horror Stickman",
+  "brandTagline": "Short nightmares. Dark lines. One last twist.",
+  "channelDescription": "Original psychological horror and scary micro-stories told in a minimal dark stickman style. New unsettling Shorts built around everyday situations, escalating tension, and a final twist."
+}

@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "name": "Original Psychological Horror / Scary Micro-Stories — Dark Stickman",
+  "positioning": "A Shorts-first fictional horror brand where ordinary situations become psychologically disturbing through concise original stories and a consistent dark stickman visual language.",
+  "northStar": "One silent frame should identify the channel; one sentence should create fear and curiosity; one ending should reward the watch.",
+  "discoveryPromise": "Every approved Short creates an immediate scroll-stop in the first 1.5 seconds, escalates through visible story beats, and ends with a memorable twist, climax, or deliberately unresolved final beat.",
+  "primarySubjectTypes": [
+    "psychological horror",
+    "everyday situations becoming uncanny",
+    "apartment and neighbor horror",
+    "night-shift horror",
+    "elevator and stairwell horror",
+    "phone and message horror",
+    "mirror and reflection horror",
+    "liminal spaces",
+    "found-footage-like fictional situations",
+    "urban-legend-style original fiction",
+    "surveillance and camera horror",
+    "knocking, doors, voices, and impossible sounds",
+    "time loops and impossible repetition"
+  ],  "requiredTopicQualities": [
+    "The premise is understandable in one sentence.",
+    "The first visual beat is compelling before any explanation.",
+    "The story has a clear everyday anchor or immediately legible situation.",
+    "The story escalates at least twice before the ending.",
+    "There is a twist, climax, or deliberately unresolved final beat.",
+    "The story can be told in 20-45 seconds.",
+    "The story can be visualized in 4-7 distinct stickman beats.",
+    "The premise is original enough to avoid semantic duplication with recent uploads.",
+    "The story does not depend on graphic gore.",
+    "The story does not depend on real-person allegations, real crimes, or copyrighted horror characters."
+  ],
+  "hardGates": {
+    "nicheFitMin": 9,
+    "visualStrengthMin": 8,
+    "curiosityGapMin": 9,
+    "visualVarietyMin": 7,
+    "retentionPotentialMin": 9,
+    "originalityMin": 9,
+    "brandFitMin": 9,
+    "minVisualStates": 4,
+    "maxVisualStates": 7,
+    "minEscalationSteps": 2,
+    "requireConcretePayoff": true,
+    "requireScrollStopMoment": true,
+    "requireAutonomyRisk": "low"
+  },  "preferredAngles": [
+    "Open on an impossible or threatening detail inside an ordinary setting.",
+    "Let the viewer understand the danger before the character does.",
+    "Use one central fear mechanism and escalate it rather than adding unrelated scares.",
+    "Prefer implication, absence, repetition, reflection, sound, and impossible spatial logic over gore.",
+    "Make the final beat recontextualize something the viewer already saw or heard.",
+    "Keep the visual grammar simple enough that each beat reads instantly on a phone."
+  ],
+  "rejectEvenIfInformative": [
+    "generic monster appears stories with no escalation",
+    "true crime or real-person accusation content",
+    "graphic gore as the main attraction",
+    "stories requiring more than 45 seconds to understand",
+    "stories without a twist, climax, or unresolved payoff",
+    "near-duplicate premises or twists from recent videos",
+    "bright, comedic, cheerful, or childlike horror styling",
+    "obvious copies of copyrighted characters or famous horror stories",
+    "stories whose hook is only shock wording with no visualizable premise",
+    "stories where the same visual could be reused for every beat",
+    "fake true-story framing"
+  ],  "rejectedAcceptanceExamples": [
+    "A monster suddenly appears and screams",
+    "A random haunted house with no specific mechanism",
+    "A copied famous creepypasta with renamed characters",
+    "A real unsolved crime retold as fiction without transformation"
+  ],
+  "creativeThesis": [
+    "Fear should come from escalation and implication, not gore.",
+    "The first frame and first line are one combined scroll-stop decision.",
+    "The middle must become more threatening, not merely explain the setup.",
+    "The ending must reward attention with a twist or disturbing new interpretation.",
+    "The same story should not work if only the setting noun is swapped.",
+    "Every Short should feel like a fragment of the same dark visual universe."
+  ],
+  "requiredRetentionMechanics": [
+    "A hook in the first 1-1.5 seconds.",
+    "At least two tension escalations before the final beat.",
+    "No exposition block longer than necessary to understand the next scare.",
+    "A new visual or narrative state every few seconds.",
+    "A twist, climax, or unresolved final image strong enough to justify the watch.",
+    "No mandatory repetitive CTA that weakens the ending."
+  ],  "topicSelectionTests": [
+    "Would a cold viewer understand the unsettling situation from one frame and one sentence?",
+    "Can the first frame create a question without revealing the twist?",
+    "Can the story be told cleanly in 90-140 words?",
+    "Can it produce 4-7 distinct dark stickman beats?",
+    "Does the threat escalate at least twice?",
+    "Is the ending less predictable than the setup?",
+    "Is it meaningfully different from recent videos?",
+    "Would it still be scary without blood or gore?"
+  ],
+  "brandSignature": {
+    "oneSentence": "Original psychological micro-horror told through a consistent dark stickman world where ordinary situations become impossible.",
+    "viewerReaction": "Something is wrong here — I need to know what happens in the last few seconds.",
+    "storyEngines": [
+      "ordinary-to-impossible",
+      "viewer-knows-first",
+      "impossible-sound",
+      "wrong-reflection",
+      "impossible-message",
+      "space-does-not-behave",
+      "repetition-loop",
+      "presence-without-proof",
+      "late-recontextualization"
+    ],    "nonNegotiables": [
+      "Hook within 1.5 seconds.",
+      "20-45 second runtime.",
+      "90-140 spoken words as the normal target.",
+      "4-7 visual beats.",
+      "Dark Stickman visual identity.",
+      "Same narrator identity.",
+      "No bright or comedic styling.",
+      "No gore-first content.",
+      "No semantic duplicates.",
+      "No fake true-story framing.",
+      "No real-person/true-crime dependency.",
+      "Twist, climax, or unresolved payoff required."
+    ],
+    "genericityKillTest": "If the story, hook, twist, or visual plan would still work after swapping only the setting/object noun, reject it.",
+    "coldViewerTest": "A viewer should understand the unsettling premise in under 1.5 seconds without background context."
+  },
+  "autonomousEditorialPolicy": {
+    "humanReviewRequired": false,
+    "weakHookAction": "reject_or_repair",
+    "weakTwistAction": "reject_or_repair",
+    "duplicateAction": "reject_production",
+    "brandDriftAction": "reject_production",
+    "graphicHorrorAction": "reject_production",
+    "qualityGatePolicy": "Never lower a gate to hit cadence. Repair or skip the story."
+  },  "outputContract": [
+    "idea",
+    "hookConcept",
+    "premise",
+    "storyFamily",
+    "everydayAnchor",
+    "fearMechanism",
+    "twist",
+    "visualHook",
+    "visualBeats",
+    "retentionMechanic",
+    "originalityScore",
+    "hookScore",
+    "retentionPotential",
+    "brandFit",
+    "priority",
+    "format",
+    "length"
+  ]
+}

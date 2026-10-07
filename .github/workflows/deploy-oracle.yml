@@ -1,0 +1,87 @@
+name: Deploy to Oracle
+
+# Manual only. Everything is configured on the `oracle-production` environment (never repository-wide):
+#   secrets   ORACLE_SSH_KEY (a dedicated, passphrase-less deploy key), ORACLE_SSH_KNOWN_HOSTS
+#             (output of `ssh-keyscan -t ed25519 <host>`, verified out of band), ORACLE_HOST
+#   variable  ORACLE_USER (defaults to ubuntu)
+# The host is a SECRET on purpose: this repository is public and secrets are masked in public logs.
+# Protect the environment with a required reviewer and deployment branches limited to `main`.
+on:
+  workflow_dispatch:
+    inputs:
+      activate_autonomous:
+        description: "Also run activate-autonomous.sh (operator authorization of Mode 2: uploads on, no approval)"
+        type: boolean
+        default: false
+      cadence_per_week:
+        description: "Optional: set Shorts per week on the existing strategy (whole number 1-35, e.g. 21 = 3 per day). Leave empty to keep it. Does not touch uploads or approval."
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-oracle
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: oracle-production
+    timeout-minutes: 30
+    env:
+      ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+      ORACLE_USER: ${{ vars.ORACLE_USER || 'ubuntu' }}
+      ACTIVATE: ${{ inputs.activate_autonomous }}
+      CADENCE: ${{ inputs.cadence_per_week }}
+    steps:
+      - name: Require configuration
+        shell: bash
+        env:
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+          KNOWN: ${{ secrets.ORACLE_SSH_KNOWN_HOSTS }}
+        run: |
+          [ -n "$ORACLE_HOST" ] || { echo "::error::Set the environment secret ORACLE_HOST"; exit 1; }
+          [ -n "$KEY" ] || { echo "::error::Set secret ORACLE_SSH_KEY"; exit 1; }
+          [ -n "$KNOWN" ] || { echo "::error::Set secret ORACLE_SSH_KNOWN_HOSTS (host key is always verified)"; exit 1; }
+
+      - name: Validate inputs
+        shell: bash
+        run: |
+          [[ "$CADENCE" =~ ^[0-9]{0,2}$ ]] || { echo "::error::cadence_per_week must be empty or a whole number 1-35"; exit 1; }
+          [[ -z "$CADENCE" || ( "$CADENCE" -ge 1 && "$CADENCE" -le 35 ) ]] || { echo "::error::cadence_per_week must be between 1 and 35"; exit 1; }
+
+      - name: Prepare SSH
+        shell: bash
+        env:
+          KEY: ${{ secrets.ORACLE_SSH_KEY }}
+          KNOWN: ${{ secrets.ORACLE_SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          umask 077
+          # Secrets pasted from Windows carry CRLF line ends, which OpenSSH rejects
+          # ("error in libcrypto"). Normalize, then prove the key parses without printing it.
+          printf '%s\n' "$KEY" | tr -d '\r' | sed -e '/^[[:space:]]*$/d' > ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN" | tr -d '\r' > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key
+          if ! ssh-keygen -y -f ~/.ssh/deploy_key > /dev/null 2>&1; then
+            echo "::error::ORACLE_SSH_KEY is not a valid unencrypted private key (it must start with -----BEGIN ... PRIVATE KEY----- and have no passphrase)"
+            rm -f ~/.ssh/deploy_key
+            exit 1
+          fi
+
+      # The checkout on the VM may predate rollout.sh, so fast-forward to main first (fails closed
+      # if the VM is not on main, has tracked changes, or main cannot be fast-forwarded).
+      - name: Roll out on the VM
+        shell: bash
+        run: |
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o ServerAliveInterval=30 \
+            "$ORACLE_USER@$ORACLE_HOST" \
+            "cd /home/ubuntu/youtube-agent-channel && git fetch origin main && git merge --ff-only origin/main && ROLLOUT_ACTIVATE=$ACTIVATE ROLLOUT_CADENCE=$CADENCE bash deploy/oracle-vm/rollout.sh"
+
+      - name: Remove key material
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
