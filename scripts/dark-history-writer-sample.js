@@ -25,4 +25,4 @@ async function main() {
   }
 }
 
-main().catch(error => { console.error(error.message); process.exit(1); });
+main().then(() => process.exit(0), error => { console.error(error.message); process.exit(1); }); // exit: open provider handles kept the process alive
