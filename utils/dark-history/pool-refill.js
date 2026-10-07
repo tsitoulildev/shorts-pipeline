@@ -11,6 +11,8 @@ const { vetArticle } = require('./event-vetting');
 const { attributionText } = require('./attribution');
 const { TARGET_DAYS } = require('./story-pool');
 
+// Most stories need no judge call at all (editor-placed images suffice); a story that does needs about 8-12.
+const DAILY_LLM_CALLS = 150;
 const SKIP_TITLE = /^(list of|category:|template:|timeline of|outline of)/i;
 
 /** Titles from the vetted event list first, then members of the configured Wikipedia categories. */
@@ -45,13 +47,19 @@ async function researchOne(title, { pool, http, judge, imageDir, now }) {
  * refillPool({ pool, judge, notify, perWeek, imageDir }) -> { researched, ready, days, allowedPerWeek, low }.
  * Researches up to maxAttempts candidates per run (free-quota friendly) and alerts when the pool is low.
  */
-async function refillPool({ pool, http = defaultHttp, judge, notify, perWeek, imageDir, maxAttempts = 3, candidates = null, now = new Date(), logger = console }) {
+async function refillPool({ pool, http = defaultHttp, judge, notify, perWeek, imageDir, maxAttempts = 3, candidates = null, dailyLlmCalls = Number(process.env.DARK_HISTORY_DAILY_LLM_CALLS) || DAILY_LLM_CALLS, now = new Date(), logger = console }) {
   let researched = 0;
+  let budgetExhausted = false;
+  // free-tier budget: research stops for the day once this many judge calls were spent (the count survives restarts)
+  const budgetKey = `dh_llm_calls:${now.toISOString().slice(0, 10)}`;
+  let spent = Number(await pool.db.getSetting(budgetKey)) || 0;
+  const countingJudge = judge && (async (...args) => { spent += 1; await pool.db.setSetting(budgetKey, String(spent)); return judge(...args); });
   if ((await pool.status(perWeek)).low) {
     for (const title of candidates || await nextCandidates(await pool.knownTitles(), maxAttempts, http)) {
+      if (spent >= dailyLlmCalls) { budgetExhausted = true; logger.warn?.(`story pool: daily LLM budget (${dailyLlmCalls} calls) spent, research resumes tomorrow`); break; }
       researched += 1;
       try {
-        await researchOne(title, { pool, http, judge, imageDir, now });
+        await researchOne(title, { pool, http, judge: countingJudge, imageDir, now });
       } catch (error) {
         // a transient failure (network, rate limit) must not mark the event as rejected for good
         logger.warn?.(`story pool: "${title}" skipped this run: ${error.message}`);
@@ -70,7 +78,7 @@ async function refillPool({ pool, http = defaultHttp, judge, notify, perWeek, im
       dedupeMinutes: 720
     });
   }
-  return { researched, ...status };
+  return { researched, budgetExhausted, llmCallsToday: spent, ...status };
 }
 
 module.exports = { refillPool, nextCandidates, researchOne };

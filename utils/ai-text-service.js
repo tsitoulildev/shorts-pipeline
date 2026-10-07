@@ -478,6 +478,7 @@ class AITextService {
       [candidate.tokenParam]: completionBudget(candidate, maxTokens),
     });
     const content = stripThinking(this._extractContent(response, candidate.providerName));
+    this.lastCall = { provider: candidate.providerName, model: candidate.model, finishReason: response?.choices?.[0]?.finish_reason || null };
     if (!content) {
       const error = new Error(`${candidate.providerName} returned an empty response. The provider response did not satisfy the text-agent contract.`);
       error.code = 'AI_EMPTY_RESPONSE';
@@ -620,6 +621,7 @@ class AITextService {
       error.code = 'AI_EMPTY_RESPONSE';
       throw error;
     }
+    this.lastCall = { provider: providerName, model, finishReason: response?.candidates?.[0]?.finishReason || null };
     return text;
   }
 
@@ -637,6 +639,7 @@ class AITextService {
         ...params,
         max_completion_tokens: maxTokens,
       });
+      this.lastCall = { provider: providerName, model, finishReason: response?.choices?.[0]?.finish_reason || null };
       return this._extractContent(response, providerName);
     } catch (error) {
       if (
@@ -648,6 +651,7 @@ class AITextService {
           ...params,
           max_tokens: maxTokens,
         });
+        this.lastCall = { provider: providerName, model, finishReason: response?.choices?.[0]?.finish_reason || null };
         return this._extractContent(response, providerName);
       }
       throw error;

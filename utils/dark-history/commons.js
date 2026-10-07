@@ -40,7 +40,12 @@ function toCandidate(page) {
   };
 }
 
-const collect = pages => (pages || []).map(toCandidate).filter(r => r.candidate).map(r => r.candidate);
+/** Candidates that passed the license/size/type checks; `rejected` (optional array) receives { title, reason } for the others. */
+const collect = (pages, rejected) => (pages || []).flatMap(page => {
+  const result = toCandidate(page);
+  if (result.rejected && rejected) rejected.push({ title: String(page.title).replace(/^File:/, ''), reason: result.rejected });
+  return result.candidate ? [result.candidate] : [];
+});
 
 async function searchImages(query, { limit = 12 } = {}, http = defaultHttp) {
   const data = await http.getJson(API, { action: 'query', format: 'json', formatversion: 2, generator: 'search', gsrnamespace: 6, gsrsearch: query, gsrlimit: limit, ...IMAGEINFO });
@@ -48,11 +53,11 @@ async function searchImages(query, { limit = 12 } = {}, http = defaultHttp) {
 }
 
 /** License-checked info for specific files (the images the Wikipedia article itself uses). */
-async function imagesByTitle(fileTitles, http = defaultHttp) {
+async function imagesByTitle(fileTitles, http = defaultHttp, rejected = null) {
   const out = [];
   for (let i = 0; i < fileTitles.length; i += 20) {
     const data = await http.getJson(API, { action: 'query', format: 'json', formatversion: 2, titles: fileTitles.slice(i, i + 20).join('|'), ...IMAGEINFO });
-    out.push(...collect(data?.query?.pages));
+    out.push(...collect(data?.query?.pages, rejected));
   }
   return out;
 }

@@ -58,6 +58,23 @@ const page = (license, extra = {}, size = { width: 1600, height: 1200 }) => ({
   assert.strictEqual(plan.article.license, 'CC BY-SA 4.0');
   assert.strictEqual(plan.shareAlike, false);
 
+  // Transparency (owner questions on the Mary Celeste sheet): every image carries a confidence, and the unused ones carry a reason.
+  const byHeading = Object.fromEntries(plan.beats.map(b => [b.heading, b]));
+  const early = byHeading['Early history'];
+  assert.strictEqual(early.images[0].confidence, 'low', 'the lap desk survived only because the other editor image was too small');
+  assert.ok(early.images[0].confidenceNotes.some(n => /only image left/.test(n)));
+  assert.ok(early.unused.items.some(u => /Villageview/.test(u.title) && /too small/.test(u.reason)), 'a rejected editor image is listed with its reason');
+  const later = byHeading['Later career and final voyage'];
+  assert.ok(later.images[0].confidenceNotes.some(n => /close call: "Gonave\.jpg"/.test(n)), 'NYTimes vs Gonave is flagged as a close call');
+  assert.ok(later.unused.items.some(u => /Gonave/.test(u.title) && /ranked higher/.test(u.reason)));
+  assert.strictEqual(byHeading['Proposed explanations'].images[0].confidence, 'low', 'zero word overlap is flagged');
+  assert.strictEqual(byHeading['Gibraltar salvage hearings'].images[0].confidence, 'high');
+  assert.ok(plan.beats.every(b => b.images.every(i => !('alternatives' in i))), 'internal ranking data is not leaked into stored records');
+  const { contactSheetHtml } = require('../utils/dark-history/contact-sheet');
+  const sheet = contactSheetHtml([{ title: 'Mary Celeste', editorPlacedOnly: { eligible: true }, withJudge: { eligible: true, reason: 'ok', shareAlike: false },
+    beats: plan.beats.map(b => ({ ...b, images: b.images.map(i => ({ ...i, source: 'editor-placed' })) })), diagnostics: [] }]);
+  assert.ok(/LOW CONFIDENCE/.test(sheet) && /Villageview\.jpg<\/strong>: rejected before ranking: too small/.test(sheet) && /good fit/.test(sheet));
+
   // Attribution for the description: Wikipedia text credit and author, license, URL for every image.
   const credit = attributionText(plan.article, plan.beats);
   assert.match(credit, /Wikipedia, "Mary Celeste".*CC BY-SA 4\.0/);
@@ -73,11 +90,54 @@ const page = (license, extra = {}, size = { width: 1600, height: 1200 }) => ({
   assert.strictEqual((await planFootage('Mary Celeste', { http: fixtureHttp, minPerBeat: 4 })).eligible, false);
 
   // The LLM judge fails closed and approves only what it lists.
-  const cand = [{ title: 'A.jpg', description: 'a ship' }, { title: 'B.jpg', description: 'a map' }];
+  const cand = [{ title: 'A.jpg', description: 'a ship', categories: ['Mary Celeste'] }, { title: 'B.jpg', description: 'a map', categories: [] }];
   const beat = { heading: 'x', text: 'the ship sailed' };
   assert.deepStrictEqual((await makeLlmJudge({ generateText: async () => '{"relevant":[1]}' })(beat, cand)).map(c => c.title), ['A.jpg']);
   assert.deepStrictEqual(await makeLlmJudge({ generateText: async () => { throw new Error('429'); } })(beat, cand), []);
   assert.deepStrictEqual(await makeLlmJudge({ generateText: async () => 'sure, all of them' })(beat, cand), []);
+
+  // The judge sees title, categories and description plus the story's subject, and is told keyword-only matches are not relevant.
+  const { buildPrompt } = require('../utils/dark-history/relevance-judge');
+  const prompt = buildPrompt(beat, cand, { subject: 'Mary Celeste' });
+  assert.ok(/about: Mary Celeste/.test(prompt) && /categories: Mary Celeste/.test(prompt) && /only shares a keyword/.test(prompt));
+
+  // Regression (VM report): an asteroid photo whose DESCRIPTION mentions the story is not accepted; its title or categories must name the subject.
+  const { relevance, termWeights, beatsFromArticle } = require('../utils/dark-history/footage');
+  const aftermath = { index: 0, terms: ['asteroids', 'impact', 'aftermath', 'meteor'] };
+  const hubble = { title: 'Asteroids in Hubble Frontier Field Abell 370.jpg', description: 'Asteroids like the Tunguska meteor trail the sky', categories: ['Hubble Space Telescope images'] };
+  assert.strictEqual(relevance(hubble, aftermath, ['tunguska'], false, termWeights([aftermath])), 0);
+  const kulik = { title: 'Kulik expedition asteroids impact.jpg', description: '', categories: ['Tunguska event'] };
+  assert.ok(relevance(kulik, aftermath, ['tunguska'], false, termWeights([aftermath])) > 0);
+
+  // Real files the VM judge approved (title + Commons categories read from the live API on 2026-10-06): the subject rule keeps all of
+  // them, because the categories name the subject even when the title is Russian or German. A same-looking file without it is cut.
+  const real = [
+    ['Dyatlov Pass incident', 'Фото членов тургруппы Игоря Дятлова.jpg', ["Dyatlov's team grave", 'PD-self']],
+    ['Hinterkaifeck murders', 'Stammbaum der Familie Gruber.jpg', ['Hinterkaifeck', 'Hinterkaifeck murders']],
+    ['Hinterkaifeck murders', 'Aussageprotokoll von Lorenz Schlittenbauer.jpg', ['Hinterkaifeck', 'Hinterkaifeck murders']],
+    ['Hinterkaifeck murders', 'Reuthaue als mutmaßliche Mordwaffe 1.jpg', ['Hinterkaifeck', 'Hinterkaifeck murders']],
+    ['Hinterkaifeck murders', 'Hinterkaifeck Flurkarte nach 1870.jpg', ['Hinterkaifeck', 'Georeferenced maps in Wikimaps Warper']],
+    ['Mary Celeste', 'Lap desk of Captain Benjamin Briggs from the Mary Celeste (PEM M6557) 01.jpg', ['Mary Celeste (ship, 1861)', 'Benjamin Briggs']],
+    ['Tunguska event', 'Tunguska Ereignis-1.jpg', ['Tunguska event', 'Damaged trees']]
+  ];
+  const { tokens: toks } = require('../utils/dark-history/footage');
+  for (const [story, title, categories] of real) {
+    const subject = toks(story).filter(t => !['incident', 'event', 'murders'].includes(t));
+    const beatTerms = { index: 0, terms: ['group', 'family', 'document', 'map', 'trees', 'desk', 'captain', 'tomb', 'weapon', 'statement', 'expedition'] };
+    const cand = { title, description: 'x group family document map trees desk captain tomb weapon statement expedition', categories };
+    assert.ok(relevance(cand, beatTerms, subject, false, termWeights([beatTerms])) > 0, `subject rule must keep ${title}`);
+  }
+  const noSubject = { title: 'Фото членов тургруппы Игоря Дятлова.jpg', description: 'group tomb', categories: ['PD-self'] };
+  assert.strictEqual(relevance(noSubject, { index: 0, terms: ['group', 'tomb'] }, ['dyatlov'], false, () => 1), 0);
+
+  // Beats are whole sections: a long section is ONE beat that keeps all its editor-placed images (no chunk competition).
+  const longText = Array.from({ length: 40 }, (_, i) => `Sentence number ${i} about the explanations of the mystery.`).join(' ');
+  const manySections = { sections: ['One', 'Two', 'Three', 'Four', 'Five', 'Six'].map(h => ({ heading: h, text: longText })) };
+  assert.strictEqual(beatsFromArticle(manySections).length, 6);
+  assert.ok(beatsFromArticle(manySections).every(b => b.text.length > 2000 && b.heading === b.section));
+  const paragraphs = longText.split('. ').join('.\n');
+  const fewSections = { sections: [{ heading: 'One', text: paragraphs }, { heading: 'Two', text: paragraphs }] };
+  assert.ok(beatsFromArticle(fewSections).length > 2, 'a short article is split so it still yields enough beats');
 
   // Search results (not placed by editors) need the judge: a judge that says no drops every such beat.
   const searchOnly = { ...fixtureHttp, getJson: async (url, params) => (params.action === 'parse' ? { parse: { text: '<p>none</p>' } } : fixtureHttp.getJson(url, params)) };
