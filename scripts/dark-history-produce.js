@@ -21,6 +21,7 @@ async function main() {
   const { vetArticle } = require('../utils/dark-history/event-vetting');
   const { writeGroundedScript } = require('../utils/dark-history/grounded-writer');
   const { produceDocumentaryShort } = require('../utils/dark-history/produce');
+  const { makeNarrator } = require('../utils/dark-history/narration');
 
   const title = process.argv[2] || 'Mary Celeste';
   const llm = new AITextService({});
@@ -38,8 +39,9 @@ async function main() {
   };
 
   const script = await writeGroundedScript({ story, llm, logger: console });
+  console.log(`Beats narrated: ${script.beats.length} of ${plan.beats.length} (skipped: ${plan.beats.filter((_, i) => !script.sourceBeatIndexes.includes(i)).map(b => b.heading).join(", ") || "none"})`);
   const video = new AIVideoGenerator({});
-  const result = await produceDocumentaryShort({ story, script, workDir: outDir, narrate: (text, out) => video.generateTTSAudio(text, out) });
+  const result = await produceDocumentaryShort({ story, script, workDir: outDir, narrate: makeNarrator({ generator: video }) });
 
   const report = [
     `# ${script.title}`, '', `Gate: ${result.gate.passed ? 'PASSED' : 'FAILED'}`,

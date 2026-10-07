@@ -31,7 +31,8 @@ async function main() {
   const titles = process.argv.slice(2).filter(a => !a.startsWith('--'));
   const rounds = Number((process.argv.find(a => a.startsWith('--rounds=')) || '--rounds=2').split('=')[1]);
   const llm = new AITextService({});
-  const verify = prompt => llm.generateText(prompt, { task: 'packaging', maxTokens: 400, temperature: 0, responseMimeType: 'application/json' });
+  let lastReply = '';
+  const verify = async prompt => { lastReply = await llm.generateText(prompt, { task: 'packaging', maxTokens: 400, temperature: 0, responseMimeType: 'application/json' }); return lastReply; };
   const totals = { faithful: 0, faithfulRejected: 0, invented: 0, inventedCaught: 0, collateral: 0, unusable: 0 };
   for (const title of titles.length ? titles : ['Mary Celeste', 'Tunguska event', 'Hinterkaifeck murders']) {
     const plan = await planFootage(title, {});
@@ -45,6 +46,7 @@ async function main() {
       const b = await checkFacts(mutated, story, { verify, parseJson: parseJsonResponse });
       const flagged = new Set(b.issues.map(issue => (issue.match(/^beat (\d+)/) || [])[1]));
       const unusable = [a, b].filter(r => r.issues.some(i => /unusable|unavailable/.test(i))).length;
+      if (unusable) console.log('  raw reply of an unusable answer: ' + JSON.stringify(lastReply).slice(0, 400) + ' via ' + JSON.stringify(llm.lastCall || null));
       totals.faithful += faithful.beats.length;
       totals.faithfulRejected += a.passed ? 0 : a.issues.filter(i => /^beat/.test(i)).length;
       totals.invented += mutated.beats.length;
