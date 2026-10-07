@@ -105,7 +105,6 @@ async function describePictures({ story, judge, readImage = readImageForModel })
   let reply;
   try {
     reply = await judge({
-      validate: text => { try { const parsed = parseJsonResponse(text); return Array.isArray(Array.isArray(parsed) ? parsed : parsed?.pictures); } catch (_error) { return false; } },
       images,
       prompt: `Below are ${entries.length} pictures from the Wikipedia article "${story.plan.title}", in order (IMAGE 1 to IMAGE ${entries.length}). For each, say in one short sentence what the picture shows (the people, ship, place, document, object or scene, and any readable text). Describe only what you see.
 
