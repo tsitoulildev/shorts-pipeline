@@ -7,6 +7,8 @@ const path = require('path');
 const { FREE_LICENSE } = require('./commons');
 const { checkFactsDeterministic } = require('./fact-check');
 const { PUBLIC_DOMAIN_VOICES } = require('./narration');
+const { distance, NEAR_DUPLICATE_BITS } = require('./dhash');
+const { MAX_IMAGE_SECONDS } = require('./documentary-render');
 const { normalizeYouTubeMetadata } = require('../youtube-metadata-validator');
 
 const NOT_FREE = /\b(nc|nd|fair use|non-?commercial|no derivatives)\b/i;
@@ -19,7 +21,7 @@ const WIKIMEDIA_FILE = /^https:\/\/(upload|thumb)\.wikimedia\.org\//;
  * script = grounded script (beats with narration/evidence/images); video = { width, height, duration, hasAudio }
  * audio (optional, the production's narration asset) adds the voice licence check
  */
-function checkDocumentaryProduction({ story, script, description, video, audio }) {
+function checkDocumentaryProduction({ story, script, description, video, audio, segments }) {
   const checks = [];
   const add = (id, passed, message) => checks.push({ id, passed: Boolean(passed), message });
   const beats = story?.plan?.beats || [];
@@ -27,6 +29,17 @@ function checkDocumentaryProduction({ story, script, description, video, audio }
 
   // Footage: every beat has real footage; no reuse; the stored file is the file that was licensed.
   add('footage_per_beat', beats.length >= 4 && beats.every(b => (b.images || []).length >= 1), `${beats.length} beats, ${beats.filter(b => (b.images || []).length >= 1).length} with footage`);
+  // No picture repeats, not even as a near-duplicate (two photographs of one desk, a page and its twin): compared by fingerprint.
+  const prints = images.map(image => ({ title: image.title, dhash: image.dhash }));
+  const unfingerprinted = prints.filter(item => !/^[0-9a-f]{16}$/.test(String(item.dhash || '')));
+  const twins = [];
+  prints.forEach((a, i) => prints.slice(i + 1).forEach(b => { if (!unfingerprinted.includes(a) && !unfingerprinted.includes(b) && distance(a.dhash, b.dhash) <= NEAR_DUPLICATE_BITS) twins.push(`${a.title} / ${b.title}`); }));
+  add('no_near_duplicate_images', images.length > 0 && !unfingerprinted.length && !twins.length, unfingerprinted.length ? `no fingerprint for: ${unfingerprinted.map(i => i.title).join(', ')}` : twins.length ? `near-duplicate pictures: ${twins.join('; ')}` : 'no two pictures are near-duplicates');
+  // Hold time: when the scene durations are known (stored with the production), no picture is on screen for long.
+  if (segments !== undefined) {
+    const longest = Math.max(0, ...(segments || []).map(segment => Number(segment.seconds ?? segment.duration ?? 0)));
+    add('image_hold_limit', (segments || []).length > 0 && longest <= MAX_IMAGE_SECONDS + 0.6, `the longest a picture stays on screen is ${longest.toFixed(1)} s (limit ${MAX_IMAGE_SECONDS} s)`);
+  }
   add('no_image_reuse', new Set(images.map(i => i.title)).size === images.length, 'each image is used once');
   const missing = [];
   const tampered = [];

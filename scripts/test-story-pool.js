@@ -95,6 +95,14 @@ const article = (extract, categories = []) => ({ extract, categories });
   await refillPool({ pool, http: fixtureHttp, notify, perWeek: 28, imageDir: dir, candidates: [], logger: { warn() {} } });
   assert.strictEqual(alerts[0].level, 'error');
 
+  // Near-duplicate pictures: when every downloaded picture is the same file, the repeating beats fall and the story is rejected, not stored
+  const sameBytes = await fixtureHttp.getBuffer('https://upload.wikimedia.org/same.png');
+  const twinsHttp = { ...fixtureHttp, getBuffer: async () => sameBytes };
+  const before = await pool.readyCount();
+  const twinsResult = await refillPool({ pool, http: twinsHttp, notify, perWeek: 28, imageDir: path.join(dir, 'twins'), candidates: ['Mary Celeste'], logger: { warn() {} } });
+  assert.strictEqual(twinsResult.ready, before, 'a story whose pictures are all the same file does not enter the pool');
+  assert.match((await db.getRow("SELECT reason FROM story_pool WHERE title = 'Mary Celeste'")).reason, /distinct pictures after dropping near-duplicates/);
+
   await db.close?.();
   fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   console.log('story pool tests passed');
