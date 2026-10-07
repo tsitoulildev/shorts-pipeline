@@ -8,6 +8,7 @@ const norm = text => String(text || '').toLowerCase().replace(/[‘’]/g, "'").
 const sentencesOf = text => String(text || '').split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);
 const NUMBER_WORDS = /\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|dozen)\b/gi;
 const MIN_EVIDENCE_WORDS = 5;
+const MIN_NARRATED_BEATS = 4;
 
 const digits = text => (String(text).match(/\d[\d,.]*\d|\d/g) || []).map(n => n.replace(/[,.]+$/, ''));
 
@@ -29,8 +30,15 @@ function checkFactsDeterministic(script, story) {
   if (!Array.isArray(script.beats) || script.beats.length !== beats.length) {
     return { passed: false, issues: [`script has ${script.beats?.length ?? 0} beats, the footage has ${beats.length}; write exactly one beat per footage beat`] };
   }
+  // A beat may be skipped (its passage adds nothing to the story and its picture is left out); enough beats must stay.
+  const narrated = script.beats.filter(beat => !beat.skip).length;
+  if (narrated < MIN_NARRATED_BEATS) return { passed: false, issues: [`only ${narrated} beats are narrated; at least ${MIN_NARRATED_BEATS} beats must be narrated`] };
   script.beats.forEach((beat, index) => {
     const label = `beat ${index + 1}`;
+    if (beat.skip) {
+      if (String(beat.narration || '').trim()) issues.push(`${label}: a skipped beat must have no narration`);
+      return;
+    }
     const passage = norm(beats[index].text);
     const narration = String(beat.narration || '');
     const evidence = (Array.isArray(beat.evidence) ? beat.evidence : []).map(String);
@@ -62,6 +70,7 @@ function checkFactsDeterministic(script, story) {
  */
 function verifierPrompt(script, story) {
   const blocks = script.beats.map((beat, i) => {
+    if (beat.skip) return null;
     const evidence = (Array.isArray(beat.evidence) ? beat.evidence : []).map(e => `- ${e}`).join('\n');
     const lines = sentencesOf(beat.narration).map((s, j) => `  ${i + 1}.${j + 1} ${s}`).join('\n');
     return `BEAT ${i + 1} (${story.plan.beats[i]?.heading || ''})
@@ -69,7 +78,7 @@ EVIDENCE (copied from the source):
 ${evidence}
 NARRATION:
 ${lines}`;
-  }).join('\n\n');
+  }).filter(Boolean).join('\n\n');
   return `You are a strict fact-checker for a true-story video. For each narration sentence decide whether the EVIDENCE of its beat states it or directly entails it.
 Supported: every fact in the sentence (who, what, when, where, how many) is in the evidence, possibly reworded or shortened.
 Unsupported: the sentence adds a detail, cause, motive, emotion, number, name or certainty the evidence does not contain, or states a theory as fact (a theory attributed to someone is fine).
@@ -95,8 +104,9 @@ async function checkFacts(script, story, { verify, parseJson } = {}) {
   if (!deterministic.passed) return deterministic;
   if (typeof verify !== 'function') return { passed: false, issues: ['no LLM verifier available: the claims could not be checked'] };
   try {
-    const unsupported = unsupportedOf(parseJson(await verify(verifierPrompt(script, story))));
-    if (!unsupported) return { passed: false, issues: ['fact verifier returned an unusable answer'] };
+    const reply = await verify(verifierPrompt(script, story));
+    const unsupported = unsupportedOf(parseJson(reply));
+    if (!unsupported) return { passed: false, issues: [`fact verifier returned an unusable answer: ${JSON.stringify(String(reply)).slice(0, 160)}`] };
     const issues = unsupported.map(item => {
       const id = typeof item === 'object' && item !== null ? item.id : item;
       const reason = typeof item === 'object' && item !== null && item.reason ? ` (${String(item.reason).slice(0, 120)})` : '';

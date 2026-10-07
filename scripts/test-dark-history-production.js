@@ -124,6 +124,33 @@ async function makeImage(file, width, height, color) {
   fs.unlinkSync(path.join(folder, beats[0].images[0].file));
   failing(base, 'image_files_intact');
 
+  // Captions sit in the lower part of the frame, clear of the Shorts UI. (Seen on the first VM render: the style was written
+  // for 1920 px but libass scaled it from a 288 px script, so the captions landed in the top third over the picture.)
+  const { subtitleFilter } = require('../utils/dark-history/documentary-render');
+  const sharp = require('sharp');
+  const srt = path.join(dir, 'caption-test.srt');
+  fs.writeFileSync(srt, '1\n00:00:00,000 --> 00:00:02,500\nDISCOVERED ADRIFT\n');
+  const black = path.join(dir, 'caption-test.mp4');
+  await runFFmpeg(['-y', '-f', 'lavfi', '-i', 'color=c=black:s=1080x1920:d=2.5:r=30', '-vf', subtitleFilter(srt), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', black]);
+  const shot = path.join(dir, 'caption-test.png');
+  await runFFmpeg(['-y', '-ss', '1', '-i', black, '-frames:v', '1', '-update', '1', shot]);
+  const { data, info } = await sharp(shot).raw().toBuffer({ resolveWithObject: true });
+  let top = Infinity; let bottom = -1;
+  for (let y = 0; y < info.height; y += 1) {
+    for (let x = 0; x < info.width; x += 1) {
+      const at = (y * info.width + x) * info.channels;
+      if (data[at] > 235 && data[at + 1] > 235 && data[at + 2] > 235) { top = Math.min(top, y); bottom = Math.max(bottom, y); break; }
+    }
+  }
+  assert.ok(bottom > 0, 'the caption is drawn');
+  assert.ok(top > 0.55 * info.height && bottom < 0.92 * info.height, `caption rows ${top}-${bottom} of ${info.height} must lie in the lower part of the frame`);
+  assert.ok(bottom - top > 30 && bottom - top < 200, `caption height ${bottom - top} px is readable but not huge`);
+
+  // A narration the Short cannot hold is refused before any rendering (the gate allows 60 s).
+  const tooLong = async (text, out) => runFFmpeg(['-y', '-f', 'lavfi', '-i', 'sine=frequency=220:duration=62', '-ar', '24000', '-ac', '1', out]);
+  await assert.rejects(() => produceDocumentaryShort({ story, script, narrate: tooLong, workDir: path.join(dir, 'long') }), error => error.code === 'NARRATION_TOO_LONG' && /62/.test(error.message));
+  assert.ok(!fs.existsSync(path.join(dir, 'long', 'short.mp4')), 'nothing was rendered for a narration that is too long');
+
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('dark-history production tests passed');
 })().catch(error => { console.error(error); process.exit(1); });

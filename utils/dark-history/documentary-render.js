@@ -61,7 +61,9 @@ function beatTimeline(beats, window) {
   });
 }
 
-const subtitleFilter = srtPath => `subtitles='${path.resolve(srtPath).replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'")}':force_style='FontName=Arial,FontSize=22,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=0,Alignment=2,MarginV=210'`;
+// libass lays an SRT out on a 384x288 script and scales it to the frame (x6.67 at 1920 px high): FontSize 10 is ~66 px, MarginV 64 is ~430 px above the bottom edge.
+// (The first version used FontSize 22 / MarginV 210, i.e. 147 px letters 1400 px up, in the top third of the picture.)
+const subtitleFilter = srtPath => `subtitles='${path.resolve(srtPath).replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'")}':force_style='FontName=Arial,FontSize=10,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=1,Shadow=0,Alignment=2,MarginV=64'`;
 
 /**
  * renderDocumentary({ script, imageFolder, narrationPath, outDir }) -> { videoPath, srtPath, duration, segments }.
@@ -112,4 +114,4 @@ async function renderThumbnail({ imagePath, title, outPath, signal }) {
   return outPath;
 }
 
-module.exports = { renderDocumentary, renderThumbnail, kenBurnsFilter, beatTimeline, MOTIONS, W, H };
+module.exports = { renderDocumentary, renderThumbnail, kenBurnsFilter, beatTimeline, subtitleFilter, MOTIONS, W, H };

@@ -4,14 +4,14 @@ const { fixtureHttp } = require('./dark-history-probe');
 const { planFootage } = require('../utils/dark-history/footage');
 const { attributionText } = require('../utils/dark-history/attribution');
 const { checkFacts, checkFactsDeterministic, sentencesOf } = require('../utils/dark-history/fact-check');
-const { writeGroundedScript, buildDescription, proseIssues } = require('../utils/dark-history/grounded-writer');
+const { writeGroundedScript, storyForScript, buildDescription, buildPrompt, proseIssues } = require('../utils/dark-history/grounded-writer');
 const { parseJsonResponse } = require('../utils/json-response');
 
 const words = s => s.split(/\s+/).length;
 
 (async () => {
   const plan = await planFootage('Mary Celeste', { http: fixtureHttp });
-  const story = { plan: { title: plan.article.title, extract: plan.article.extract, beats: plan.beats }, attribution: attributionText(plan.article, plan.beats) };
+  const story = { article_url: plan.article.url, plan: { title: plan.article.title, extract: plan.article.extract, beats: plan.beats }, attribution: attributionText(plan.article, plan.beats) };
 
   // A faithful draft built from real source sentences (8-22 words each, ~15 words per beat).
   const faithful = story.plan.beats.map(beat => {
@@ -79,6 +79,41 @@ const words = s => s.split(/\s+/).length;
   assert.strictEqual(script.beats.length, story.plan.beats.length);
   assert.ok(prompts.some(p => /FACT-CHECK NOTES/.test(p) && /amount "Forty"/.test(p)), 'the rewrite prompt carries the fact-check issue');
   assert.ok(script.metadata.creativeReview.attempts.length >= 2);
+
+  // A beat may be skipped when its passage adds nothing to the story: no narration, its picture and credit leave the video.
+  // (Wikipedia sections are arbitrary: the real Mary Celeste draft had to cram a section about a later wreck into a 40 s story.)
+  const skip = { skip: true, narration: '', evidence: [] };
+  const skipAt = (index, beats = faithful) => beats.map((b, i) => (i === index ? skip : b));
+  assert.strictEqual((await check(skipAt(1))).passed, true, 'one skipped beat is fine');
+  await rejects(skipAt(1).map((b, i) => (i === 1 ? { ...b, narration: 'It was cold.' } : b)), /beat 2: a skipped beat must have no narration/);
+  await rejects(faithful.map((b, i) => (i < faithful.length - 3 ? skip : b)), /at least 4 beats must be narrated/);
+  const seenSkip = [];
+  await check(skipAt(1), async prompt => { seenSkip.push(prompt); return JSON.stringify(clean); });
+  assert.ok(!seenSkip[0].includes('BEAT 2 ') && seenSkip[0].includes('BEAT 3 '), 'the verifier is not asked about a skipped beat');
+  assert.ok(/"skip":true/.test(buildPrompt(story, null)) && /at least 4 beats must stay/.test(buildPrompt(story, null)));
+  const skipDraft = JSON.stringify({ title: 'The Ship Found Empty', beats: skipAt(1).map(b => (b.skip ? { skip: true } : { narration: b.narration, evidence: b.evidence })) });
+  const skipped = await writeGroundedScript({ story, llm: { generateText: async prompt => (/strict fact-checker/.test(prompt) ? JSON.stringify(clean) : skipDraft) }, maxRevisions: 0 });
+  assert.strictEqual(skipped.beats.length, story.plan.beats.length - 1);
+  assert.deepStrictEqual(skipped.sourceBeatIndexes, story.plan.beats.map((_, i) => i).filter(i => i !== 1));
+  const used = storyForScript(story, skipped);
+  assert.strictEqual(used.plan.beats.length, skipped.beats.length);
+  skipped.beats.forEach((b, i) => assert.deepStrictEqual(b.images.map(x => x.sha256), used.plan.beats[i].images.map(x => x.sha256), 'script beat i shows the images of story beat i'));
+  const titleOf = beat => beat.images[0].title.replace(/.(jpe?g|png)$/i, '');
+  assert.ok(!used.attribution.includes(titleOf(story.plan.beats[1])), 'the picture that is not shown is not credited');
+  assert.ok(used.attribution.includes(titleOf(story.plan.beats[0])) && used.attribution.includes(titleOf(story.plan.beats[2])));
+  assert.ok(skipped.description.includes(used.attribution) && !skipped.description.includes(titleOf(story.plan.beats[1])));
+  assert.strictEqual(storyForScript(story, { sourceBeatIndexes: story.plan.beats.map((_, i) => i) }), story, 'nothing skipped: the story is unchanged');
+  // the documentary gate's fact re-check accepts the pruned pair, and still rejects a pruned script paired with the full story
+  const { checkFactsDeterministic: recheck } = require('../utils/dark-history/fact-check');
+  assert.strictEqual(recheck(skipped, used).passed, true);
+  assert.strictEqual(recheck(skipped, story).passed, false);
+
+  // A reply that is not the JSON asked for is asked once more; a second bad reply loses the attempt (nothing is invented).
+  let replies2 = ['{"title":"x"}', JSON.stringify(draft(faithful))];
+  const flaky = { generateText: async prompt => (/strict fact-checker/.test(prompt) ? JSON.stringify(clean) : replies2.shift()) };
+  assert.strictEqual((await writeGroundedScript({ story, llm: flaky, maxRevisions: 0 })).beats.length, faithful.length);
+  replies2 = ['{"title":"x"}', 'not json', JSON.stringify(draft(faithful))];
+  await assert.rejects(() => writeGroundedScript({ story, llm: flaky, maxRevisions: 0 }), /no title.beats|JSON/i);
 
   // Seen on the VM: every rewrite fixed the flagged beat and broke another one, so three attempts never converged.
   // A rewrite now gets the previous draft and may change ONLY the beats the notes name; the others are restored as they were.

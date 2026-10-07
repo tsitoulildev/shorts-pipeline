@@ -14,7 +14,7 @@ async function main() {
   const plan = await planFootage(title, { judge: makeLlmJudge(llm) });
   console.log(`Footage: eligible=${plan.eligible} (${plan.reason})`);
   if (!plan.eligible) return;
-  const story = { plan: { title: plan.article.title, extract: plan.article.extract, beats: plan.beats }, attribution: attributionText(plan.article, plan.beats) };
+  const story = { article_url: plan.article.url, plan: { title: plan.article.title, extract: plan.article.extract, beats: plan.beats }, attribution: attributionText(plan.article, plan.beats) };
   try {
     const script = await writeGroundedScript({ story, llm, logger: console });
     console.log(`\nTITLE: ${script.title}\n`);
