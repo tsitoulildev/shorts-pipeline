@@ -92,3 +92,8 @@ artifacts/
 # Claude worktrees
 .claude/worktrees/
 data/backups/
+
+# Dark History working data
+data/story-pool/
+data/dark-history-reports/
+data/dark-history-output/

@@ -13,7 +13,7 @@ const YT_DESCRIPTION_LIMIT = 4900;
 const wordCount = text => String(text || '').split(/\s+/).filter(Boolean).length;
 
 function buildPrompt(story, brief) {
-  const beats = story.plan.beats.map((beat, i) => `BEAT ${i + 1} (${beat.heading}). On screen: ${beat.images.map(img => img.title.replace(/\.(jpe?g|png)$/i, '')).join('; ')}\nSOURCE PASSAGE: ${beat.text.slice(0, 1100)}`).join('\n\n');
+  const beats = story.plan.beats.map((beat, i) => `BEAT ${i + 1} (${beat.heading}). On screen: ${beat.images.map(img => img.title.replace(/\.(jpe?g|png)$/i, '')).join('; ')}\nSOURCE PASSAGE: ${beat.text.slice(0, 1800)}`).join('\n\n');
   return `You write a 35-45 second true-story narration for a YouTube Short about "${story.plan.title}". It must be accurate, plain and gripping.
 
 HARD RULES (a fact-checker rejects the whole script if one is broken):

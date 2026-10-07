@@ -77,12 +77,34 @@ const words = s => s.split(/\s+/).length;
   const liar = { generateText: async prompt => (/strict fact-checker/.test(prompt) ? JSON.stringify(clean) : JSON.stringify(draft(bad))) };
   await assert.rejects(() => writeGroundedScript({ story, llm: liar, maxRevisions: 1 }), error => error.code === 'CREATIVE_REVIEW_REJECTED' && /fact-check/.test(error.message));
 
-  // The VM sample report counts LLM calls and failures, so a dead provider is visible instead of silent.
+  // The VM sample report separates thrown errors, invalid/cut answers and provider truncation, per provider and model.
   const { instrument, toMarkdown } = require('./dark-history-judge-sample');
-  const probe = instrument({ generateText: async () => { throw new Error('429 quota'); } });
-  await probe.generateText('x').catch(() => {});
-  assert.deepStrictEqual([probe.stats.calls, probe.stats.failed], [1, 1]);
-  assert.match(toMarkdown([{ title: 'T', editorPlacedOnly: { eligible: false, beats: 1 }, withJudge: { eligible: false, beats: 0, reason: 'r', shareAlike: false }, beats: [], judged: [], llm: probe.stats }]), /failed: 1 \(429 quota\)/);
+  const answers = [
+    { text: '{"relevant":[1]}', call: { provider: 'Groq', model: 'llama', finishReason: 'stop' } },
+    { text: '{ "', call: { provider: 'Google Gemini', model: 'gemini-x', finishReason: 'MAX_TOKENS' } },
+    { text: 'not json at all', call: { provider: 'Groq', model: 'llama', finishReason: 'stop' } },
+    { throws: new Error('429 quota'), call: { provider: 'Mistral', model: 'm', finishReason: null } }
+  ];
+  const fake = { lastCall: null, async generateText() { const a = answers.shift(); this.lastCall = a.call; if (a.throws) throw a.throws; return a.text; } };
+  const probe = instrument(fake, reply => { try { return Array.isArray(JSON.parse(reply).relevant); } catch (_e) { return false; } });
+  for (let i = 0; i < 4; i += 1) await probe.generateText('x', { maxTokens: 200 }).catch(() => {});
+  assert.deepStrictEqual([probe.stats.calls, probe.stats.failed, probe.stats.invalid, probe.stats.truncated], [4, 1, 2, 1]);
+  assert.deepStrictEqual(probe.stats.providers['Groq / llama'], { calls: 2, failed: 0, invalid: 1, truncated: 0, finishReasons: { stop: 2 } });
+  assert.strictEqual(probe.stats.providers['Google Gemini / gemini-x'].truncated, 1);
+  const md = toMarkdown([{ title: 'T', editorPlacedOnly: { eligible: false, beats: 1 }, withJudge: { eligible: false, beats: 0, reason: 'r', shareAlike: false }, beats: [], judged: [], llm: probe.stats }]);
+  assert.match(md, /Measured LLM calls \(counted, not estimated\)/);
+  assert.match(md, /- T: 4 calls \(1 threw, 2 invalid, 1 cut at the token limit\)/);
+  assert.match(md, /by provider Groq \/ llama: 2 answers, 0 threw, 1 invalid, 0 truncated/);
+  assert.match(md, /failed \(threw\): 1; invalid answers \(bad\/cut JSON\): 2; cut by the provider at the token limit: 1/);
+  assert.match(md, /Google Gemini \/ gemini-x: 1 answers, 0 threw, 1 invalid, 1 truncated/);
+
+  // Contact sheet: every beat with image, license and source; dropped passages with the reason; HTML-escaped.
+  const { contactSheetHtml } = require('../utils/dark-history/contact-sheet');
+  const html = contactSheetHtml([{ title: 'Story <1>', editorPlacedOnly: { eligible: true }, withJudge: { eligible: true, reason: 'ok', shareAlike: true },
+    beats: [{ heading: 'Intro', text: 'Text', images: [{ title: 'A.jpg', license: 'CC BY-SA 4.0', author: 'Ann', fileUrl: 'https://upload.wikimedia.org/a.jpg', descriptionUrl: 'https://commons.wikimedia.org/wiki/File:A.jpg', source: 'LLM-approved' }] }],
+    diagnostics: [{ heading: 'Intro', ownedTitles: [], screened: [], approved: [] }, { heading: 'Lost', ownedTitles: [], screened: ['X.jpg'], approved: [] }] }]);
+  assert.ok(html.includes('Story &lt;1&gt;') && html.includes('CC BY-SA 4.0') && html.includes('approved by the LLM judge') && html.includes('src="https://upload.wikimedia.org/a.jpg"'));
+  assert.ok(/1 passage\(s\) left out/.test(html) && html.includes('Lost') && html.includes('rejected: X.jpg'));
 
   console.log('dark-history writer tests passed');
 })().catch(error => { console.error(error); process.exit(1); });

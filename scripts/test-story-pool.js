@@ -69,6 +69,16 @@ const article = (extract, categories = []) => ({ extract, categories });
   assert.strictEqual(alerts[0].dedupeKey, 'story_pool_low');
   assert.strictEqual(result.allowedPerWeek, 1);
 
+  // Daily free-tier budget: with no calls left nothing is researched, and the spend is stored per day.
+  const calls = [];
+  const limited = await refillPool({ pool, http: fixtureHttp, notify, perWeek: 28, imageDir: dir, candidates: ['Mary Celeste'], dailyLlmCalls: 0, judge: async () => { calls.push(1); return []; }, logger: { warn() {} } });
+  assert.strictEqual(limited.researched, 0);
+  assert.strictEqual(limited.budgetExhausted, true);
+  await db.setSetting('dh_llm_calls:2026-10-06', '149');
+  const spend = await refillPool({ pool, http: fixtureHttp, notify, perWeek: 28, imageDir: dir, candidates: ['Nothing Known'], dailyLlmCalls: 150, now: new Date('2026-10-06T12:00:00Z'), logger: { warn() {} } });
+  assert.strictEqual(spend.llmCallsToday, 149);
+  assert.strictEqual(spend.researched, 1);
+
   // Claim: oldest ready story first, marked used, plan and images on disk, never handed out twice.
   const first = await pool.claimNext();
   assert.strictEqual(first.title, 'Mary Celeste');
@@ -86,6 +96,6 @@ const article = (extract, categories = []) => ({ extract, categories });
   assert.strictEqual(alerts[0].level, 'error');
 
   await db.close?.();
-  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   console.log('story pool tests passed');
 })().catch(error => { console.error(error); process.exit(1); });
