@@ -52,6 +52,10 @@ function checkDocumentaryProduction({ story, script, description, video, audio }
   add('claims_map_to_source', facts.passed, facts.passed ? 'every beat has verbatim evidence; numbers, names and quotes are in the source' : facts.issues.slice(0, 3).join(' | '));
   add('claims_verified_by_editor', script?.metadata?.creativeReview?.facts?.passed === true && script?.metadata?.creativeReview?.passed === true, 'the fact verifier and the editor passed this exact script');
 
+  // The pictures themselves were looked at: a vision model confirmed every picture shows what its beat narrates.
+  const fit = script?.metadata?.creativeReview?.imageFit;
+  add('images_fit_narration', fit?.passed === true && fit?.checkedBeats === (script?.beats || []).length && (script?.beats || []).length > 0, fit?.passed === true ? `a vision check confirmed ${fit.checkedBeats} pictures fit their narration` : 'no passing vision check of the pictures is recorded for this script');
+
   // Attribution: Wikipedia text credit + every image's author/license/URL, unchanged, inside the description.
   const credit = story?.attribution || '';
   add('attribution_in_description', Boolean(credit) && String(description || '').includes(credit), 'the attribution text appears unchanged in the description');

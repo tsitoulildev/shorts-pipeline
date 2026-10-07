@@ -7,6 +7,8 @@ const { makeLlmJudge } = require('../utils/dark-history/relevance-judge');
 const { planFootage } = require('../utils/dark-history/footage');
 const { attributionText } = require('../utils/dark-history/attribution');
 const { writeGroundedScript } = require('../utils/dark-history/grounded-writer');
+const { downloadImage } = require('../utils/dark-history/commons');
+const path = require('path');
 
 async function main() {
   const title = process.argv[2] || 'Mary Celeste';
@@ -14,7 +16,10 @@ async function main() {
   const plan = await planFootage(title, { judge: makeLlmJudge(llm) });
   console.log(`Footage: eligible=${plan.eligible} (${plan.reason})`);
   if (!plan.eligible) return;
-  const story = { article_url: plan.article.url, plan: { title: plan.article.title, extract: plan.article.extract, beats: plan.beats }, attribution: attributionText(plan.article, plan.beats) };
+  // the vision check needs the pictures themselves
+  const folder = path.join(__dirname, '..', 'data', 'dark-history-reports', 'sample-images', plan.article.title.replace(/[^a-z0-9]+/gi, '_'));
+  for (const beat of plan.beats) beat.images = await Promise.all(beat.images.map(image => downloadImage(image, folder)));
+  const story = { article_url: plan.article.url, plan: { title: plan.article.title, extract: plan.article.extract, folder, beats: plan.beats }, attribution: attributionText(plan.article, plan.beats) };
   try {
     const script = await writeGroundedScript({ story, llm, logger: console });
     console.log(`\nTITLE: ${script.title}\n`);

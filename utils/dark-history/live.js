@@ -89,10 +89,11 @@ function buildProductionData({ id = `prod_${Date.now()}_${crypto.randomBytes(5).
 
 /**
  * Gives a claimed story back after a failed production and tags the error for the alert (storyTitle, storyId, attempts,
- * storyRejected). A cancelled job is not the story's fault; any other failure counts as an attempt (3 attempts reject the story).
+ * storyRejected). A cancelled job, or a vision model that was not available, is not the story's fault; any other failure counts as an
+ * attempt (3 attempts reject the story).
  */
 async function releaseAfterFailure(pool, storyId, title, error, { cancelled = false } = {}) {
-  const outcome = await pool.release(storyId, { reason: `${error.code || 'error'}: ${error.message}`, countAttempt: !(cancelled || error.code === 'JOB_CANCELLED') });
+  const outcome = await pool.release(storyId, { reason: `${error.code || 'error'}: ${error.message}`, countAttempt: !(cancelled || ['JOB_CANCELLED', 'VISION_UNAVAILABLE'].includes(error.code)) });
   error.storyTitle = title;
   error.storyId = storyId;
   error.attempts = outcome?.attempts ?? null;

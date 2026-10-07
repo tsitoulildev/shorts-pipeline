@@ -66,6 +66,9 @@ const addToPool = async (pool, built) => pool.add({
 function makeLlm(mode = { writer: 'ok' }) {
   const llm = {
     calls: 0,
+    model: 'gemini-test',
+    // the vision model: looks at the real stand-in pictures (sent as inline data) and finds every one fitting, unless the mode says otherwise
+    gemini: mode.vision === 'none' ? null : { models: { generateContent: async request => { llm.visionCalls = (llm.visionCalls || 0) + 1; llm.lastVision = request; return { text: JSON.stringify({ mismatch: mode.vision === 'mismatch' ? [{ beat: 2, reason: 'wrong picture' }] : [] }) }; } } },
     async generateText(prompt) {
       llm.calls += 1;
       if (/strict fact-checker/.test(prompt)) return JSON.stringify({ unsupported: [] });
@@ -120,7 +123,7 @@ function makeLlm(mode = { writer: 'ok' }) {
   const script = {
     title: 'The Ship Found Empty', hook: SENTENCES[0],
     beats: built.beats.map((b, i) => ({ heading: b.heading, narration: SENTENCES[i], evidence: [SENTENCES[i]], images: b.images })),
-    metadata: { creativeReview: { passed: true, overall: 8.5, facts: { passed: true } } }
+    metadata: { creativeReview: { passed: true, overall: 8.5, facts: { passed: true }, imageFit: { passed: true, checkedBeats: 4 } } }
   };
   script.fullScript = SENTENCES.join(' ');
   const tone = async (_text, out) => runFFmpeg(['-y', '-f', 'lavfi', '-i', 'sine=frequency=220:duration=12', '-ar', '24000', '-ac', '1', out]);
@@ -294,6 +297,30 @@ function makeLlm(mode = { writer: 'ok' }) {
     assert.strictEqual(gated.scheduled.length, 0);
     assert.strictEqual((await db.getRow('SELECT status FROM story_pool WHERE id = ?', [tamperedId])).status, 'ready');
     await db.executeQuery("UPDATE story_pool SET status = 'rejected' WHERE id = ?", [tamperedId]);
+
+    // pictures that do not fit their narration: no Short (the writer cannot fix it here), the owner is told; the pictures were really sent
+    notices.length = 0;
+    await addToPool(pool, await makeStory(dir, 'Fit Story'));
+    const mismatchLlm = makeLlm({ vision: 'mismatch' });
+    const fitting = makeAgent({ llm: mismatchLlm });
+    const fitJob = await fitting.queueScheduledContent({ source: 'scheduler' });
+    const fitDone = await fitting.waitForGenerationJob(fitJob.id);
+    assert.strictEqual(fitDone.status, 'failed');
+    assert.match(fitDone.error, /picture does not fit/);
+    const sentParts = mismatchLlm.lastVision.contents[0].parts;
+    assert.strictEqual(sentParts.filter(part => part.inlineData && part.inlineData.mimeType === 'image/jpeg' && part.inlineData.data.length > 100).length, 4, 'the four real pictures were sent to the vision model');
+    assert.strictEqual((await db.getRow("SELECT attempts FROM story_pool WHERE title = 'Fit Story'")).attempts, 1);
+    assert.ok(notices.some(n => n.type === 'documentary_failure' && /picture does not fit/.test(n.message)));
+    // no vision model: the pictures cannot be checked, nothing is made, and the story is not burned
+    notices.length = 0;
+    const blind = makeAgent({ llm: makeLlm({ vision: 'none' }) });
+    const blindJob = await blind.queueScheduledContent({ source: 'scheduler' });
+    const blindDone = await blind.waitForGenerationJob(blindJob.id);
+    assert.strictEqual(blindDone.status, 'failed');
+    assert.match(blindDone.error, /no vision model is available/);
+    assert.strictEqual((await db.getRow("SELECT attempts FROM story_pool WHERE title = 'Fit Story'")).attempts, 1, 'a missing vision model is not the story\'s fault');
+    assert.strictEqual(blind.scheduled.length, 0);
+    await db.executeQuery("UPDATE story_pool SET status = 'rejected' WHERE title = 'Fit Story'");
 
     // empty pool: no story, no fiction, an alert with the cause
     notices.length = 0;
