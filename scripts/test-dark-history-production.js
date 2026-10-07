@@ -54,7 +54,7 @@ async function makeImage(file, width, height, color) {
   const script = {
     title: 'The Ship Found Empty', hook: SENTENCES[0],
     beats: beats.map((b, i) => ({ heading: b.heading, narration: SENTENCES[i], evidence: [SENTENCES[i]], images: b.images })),
-    metadata: { creativeReview: { passed: true, facts: { passed: true } } }
+    metadata: { creativeReview: { passed: true, facts: { passed: true }, imageFit: { passed: true, checkedBeats: 4 } } }
   };
   script.fullScript = SENTENCES.join(' ');
 
@@ -119,6 +119,10 @@ async function makeImage(file, width, height, color) {
   failing({ ...base, script: invented }, 'claims_map_to_source');
   const unreviewed = { ...clone(script), metadata: {} };
   failing({ ...base, script: unreviewed }, 'claims_verified_by_editor');
+  const withFit = (imageFit) => { const copy = clone(script); copy.metadata = { creativeReview: { passed: true, facts: { passed: true }, ...(imageFit ? { imageFit } : {}) } }; return copy; };
+  failing({ ...base, script: withFit(null) }, 'images_fit_narration');
+  failing({ ...base, script: withFit({ passed: false, checkedBeats: 4 }) }, 'images_fit_narration');
+  failing({ ...base, script: withFit({ passed: true, checkedBeats: 3 }) }, 'images_fit_narration');
   const swapped = clone(script); swapped.beats[0].images = script.beats[1].images; swapped.metadata = script.metadata;
   failing({ ...base, script: swapped }, 'claims_map_to_source');
   fs.unlinkSync(path.join(folder, beats[0].images[0].file));

@@ -5,6 +5,7 @@ const { reviewedScriptLoop } = require('../creative-review');
 const { parseJsonResponse } = require('../json-response');
 const { checkFacts, sentencesOf } = require('./fact-check');
 const { attributionText } = require('./attribution');
+const { checkImageFit, describePictures, makeVisionJudge } = require('./image-fit');
 
 // ljspeech speaks about 2 words a second (measured on the VM: 132 words = 64.7 s); the gate allows 60 s
 const WORDS = { min: 70, max: 100, beatMin: 9, beatMax: 18 };
@@ -14,15 +15,15 @@ const YT_DESCRIPTION_LIMIT = 4900;
 
 const wordCount = text => String(text || '').split(/\s+/).filter(Boolean).length;
 
-function buildPrompt(story, brief, previous = null) {
-  const beats = story.plan.beats.map((beat, i) => `BEAT ${i + 1} (${beat.heading}). On screen: ${beat.images.map(img => img.title.replace(/\.(jpe?g|png)$/i, '')).join('; ')}\nSOURCE PASSAGE: ${beat.text.slice(0, 1800)}`).join('\n\n');
+function buildPrompt(story, brief, previous = null, shows = []) {
+  const beats = story.plan.beats.map((beat, i) => `BEAT ${i + 1} (${beat.heading}). On screen: ${beat.images.map(img => img.title.replace(/\.(jpe?g|png)$/i, '')).join('; ')}${shows[i] ? ` - the picture shows: ${shows[i]}` : ''}\nSOURCE PASSAGE: ${beat.text.slice(0, 1800)}`).join('\n\n');
   return `You write the narration of a 35-45 second true-story YouTube Short about "${story.plan.title}". The voice is a calm documentary narrator speaking to someone who knows nothing about it. It must be accurate, plain and gripping.
 
 HOW IT SHOULD SOUND
 - Tell ONE tight story in order: the most striking fact, what happened (say plainly who or what was lost, killed or unexplained), what was found or decided, what is still unknown. Every beat adds one new fact, so the viewer is pulled forward.
 - Skip every passage that is only background (how the ship was built or registered, who owned it) or epilogue (later fate, books and retellings) unless it IS the story. Four to six strong beats beat seven weak ones.
 - Restate the evidence in your own short spoken sentences. Do not copy a long source sentence, and leave out minor detail (registration dates, official titles, ship numbers) unless the story needs it. At most two numbers or dates per beat.
-- Concrete nouns and verbs. No filler and no adjectives such as "shocking", "mysterious" or "chilling". Fit each beat to what is on screen when its passage allows it.
+- Concrete nouns and verbs. No filler and no adjectives such as "shocking", "mysterious" or "chilling". Each beat's narration must be about what its picture shows (the same people, ship, place, document or object), told with facts from that beat's source passage; a vision check rejects a beat whose picture shows something else. If the passage has no fact about what the picture shows, skip the beat.
 - Beat 1 is the hook: the single most striking true fact of the whole story in 14 words or fewer (it may come from the article lead). No "imagine", no question to the viewer.
 - The last beat ends on the real unresolved fact or consequence, never on an invented twist.
 
@@ -95,12 +96,16 @@ function proseIssues(script) {
 }
 
 /** { overall, passed, failures, notes, source } in the shape reviewedScriptLoop expects. */
-async function reviewGrounded(script, story, verify) {
+async function reviewGrounded(script, story, verify, imageFit = null) {
   const facts = await checkFacts(script, story, { verify, parseJson: parseJsonResponse });
+  // An unavailable vision model throws VISION_UNAVAILABLE: unchecked pictures never pass.
+  // (Vision requests are free-tier quota: they run on drafts whose facts hold; a draft with a fact problem is rewritten first.)
+  const fit = !facts.passed ? { passed: false, issues: [], checkedBeats: 0, skipped: true } : await checkImageFit({ script, story, ...(imageFit || {}) });
   const prose = proseIssues(script);
-  const overall = facts.passed ? Math.max(0, 10 - 1.5 * prose.length) : 0;
-  const failures = [...(facts.passed ? [] : ['fact-check failed']), ...(prose.length && overall < PASS_SCORE ? ['documentary prose below the floor'] : [])];
-  return { overall: Number(overall.toFixed(2)), passed: facts.passed && overall >= PASS_SCORE, failures, notes: [...facts.issues, ...prose], source: 'fact-check+prose', facts };
+  const accepted = facts.passed && fit.passed;
+  const overall = accepted ? Math.max(0, 10 - 1.5 * prose.length) : 0;
+  const failures = [...(facts.passed ? [] : ['fact-check failed']), ...(fit.passed || fit.skipped ? [] : ['a picture does not fit its narration']), ...(prose.length && overall < PASS_SCORE ? ['documentary prose below the floor'] : [])];
+  return { overall: Number(overall.toFixed(2)), passed: accepted && overall >= PASS_SCORE, failures, notes: [...facts.issues, ...fit.issues, ...prose], source: 'fact-check+images+prose', facts, imageFit: { passed: fit.passed, checkedBeats: fit.checkedBeats } };
 }
 
 function parseDraft(reply, story) {
@@ -129,7 +134,11 @@ function buildDescription(script, story) {
  * writeGroundedScript({ story, llm }) -> script, or throws CREATIVE_REVIEW_REJECTED when no draft passes the fact-check.
  * `story` is a claimed story_pool row: { plan: { title, extract, beats }, attribution }. llm = an AITextService.
  */
-async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3 }) {
+async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3, imageFit = null }) {
+  const fitOptions = imageFit || { judge: makeVisionJudge(llm) };
+  // Fail before spending: unchecked pictures never pass, so without a vision model there is no point in writing.
+  if (!fitOptions.judge) throw Object.assign(new Error('no vision model is available to check that the pictures fit the narration'), { code: 'VISION_UNAVAILABLE' });
+  const shows = await describePictures({ story, ...fitOptions });
   let previous = null;
   const ask = (prompt, options) => llm.generateText(prompt, { task: 'script', responseMimeType: 'application/json', ...options });
   const script = await reviewedScriptLoop({
@@ -139,7 +148,7 @@ async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3
       let draft;
       for (let tries = 1; !draft; tries += 1) {
         try {
-          draft = parseDraft(await ask(buildPrompt(story, brief, previous), { maxTokens: 2200, temperature: brief ? 0.4 : 0.6 }), story);
+          draft = parseDraft(await ask(buildPrompt(story, brief, previous, shows), { maxTokens: 2200, temperature: brief ? 0.4 : 0.6 }), story);
         } catch (error) {
           if (tries >= 2 || !/no title.beats|JSON|Unexpected token|parse/i.test(error.message)) throw error;
           logger?.warn?.(`grounded writer: unusable reply (${error.message}); asking again`);
@@ -154,7 +163,7 @@ async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3
       previous = draft;
       return draft;
     },
-    review: draft => reviewGrounded(draft, story, prompt => ask(prompt, { task: 'packaging', maxTokens: 400, temperature: 0 }))
+    review: draft => reviewGrounded(draft, story, prompt => ask(prompt, { task: 'packaging', maxTokens: 400, temperature: 0 }), fitOptions)
   });
   // Skipped beats leave the script (and the story's footage and credits) here, so everything downstream sees one beat per picture.
   script.sourceBeatIndexes = script.beats.map((b, i) => (b.skip ? null : i)).filter(i => i !== null);

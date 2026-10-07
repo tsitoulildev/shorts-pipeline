@@ -8,6 +8,7 @@ const { writeGroundedScript, storyForScript, buildDescription, buildPrompt, pros
 const { parseJsonResponse } = require('../utils/json-response');
 
 const words = s => s.split(/\s+/).length;
+const fitOk = { judge: async () => JSON.stringify({ mismatch: [] }), readImage: async () => ({ mimeType: 'image/jpeg', data: 'AAAA' }) };
 
 (async () => {
   const plan = await planFootage('Mary Celeste', { http: fixtureHttp });
@@ -77,7 +78,7 @@ const words = s => s.split(/\s+/).length;
     prompts.push(prompt);
     return /strict fact-checker/.test(prompt) ? JSON.stringify(clean) : replies.shift();
   } };
-  const script = await writeGroundedScript({ story, llm, maxRevisions: 2 });
+  const script = await writeGroundedScript({ story, imageFit: fitOk, llm, maxRevisions: 2 });
   assert.strictEqual(script.beats.length, story.plan.beats.length);
   assert.ok(prompts.some(p => /FACT-CHECK NOTES/.test(p) && /amount "Forty"/.test(p)), 'the rewrite prompt carries the fact-check issue');
   assert.ok(script.metadata.creativeReview.attempts.length >= 2);
@@ -110,7 +111,7 @@ const words = s => s.split(/\s+/).length;
   assert.ok(!seenSkip[0].includes('BEAT 2 ') && seenSkip[0].includes('BEAT 3 '), 'the verifier is not asked about a skipped beat');
   assert.ok(/"skip":true/.test(buildPrompt(story, null)) && /at least 4 beats must stay/.test(buildPrompt(story, null)));
   const skipDraft = JSON.stringify({ title: 'The Ship Found Empty', beats: skipAt(1).map(b => (b.skip ? { skip: true } : { narration: b.narration, evidence: b.evidence })) });
-  const skipped = await writeGroundedScript({ story, llm: { generateText: async prompt => (/strict fact-checker/.test(prompt) ? JSON.stringify(clean) : skipDraft) }, maxRevisions: 0 });
+  const skipped = await writeGroundedScript({ story, imageFit: fitOk, llm: { generateText: async prompt => (/strict fact-checker/.test(prompt) ? JSON.stringify(clean) : skipDraft) }, maxRevisions: 0 });
   assert.strictEqual(skipped.beats.length, story.plan.beats.length - 1);
   assert.deepStrictEqual(skipped.sourceBeatIndexes, story.plan.beats.map((_, i) => i).filter(i => i !== 1));
   const used = storyForScript(story, skipped);
@@ -129,9 +130,69 @@ const words = s => s.split(/\s+/).length;
   // A reply that is not the JSON asked for is asked once more; a second bad reply loses the attempt (nothing is invented).
   let replies2 = ['{"title":"x"}', JSON.stringify(draft(faithful))];
   const flaky = { generateText: async prompt => (/strict fact-checker/.test(prompt) ? JSON.stringify(clean) : replies2.shift()) };
-  assert.strictEqual((await writeGroundedScript({ story, llm: flaky, maxRevisions: 0 })).beats.length, faithful.length);
+  assert.strictEqual((await writeGroundedScript({ story, imageFit: fitOk, llm: flaky, maxRevisions: 0 })).beats.length, faithful.length);
   replies2 = ['{"title":"x"}', 'not json', JSON.stringify(draft(faithful))];
-  await assert.rejects(() => writeGroundedScript({ story, llm: flaky, maxRevisions: 0 }), /no title.beats|JSON/i);
+  await assert.rejects(() => writeGroundedScript({ story, imageFit: fitOk, llm: flaky, maxRevisions: 0 }), /no title.beats|JSON/i);
+
+  // Picture fit: a vision model looks at the pictures with the narrations (one request, all beats). Seen on the VM: a waterspout photo
+  // sat under "pirates would have looted the ship" because the section it came from discusses theories.
+  const fitMod = require('../utils/dark-history/image-fit');
+  assert.deepStrictEqual(fitMod.mismatchesOf({ mismatch: [] }), []);
+  assert.deepStrictEqual(fitMod.mismatchesOf([{ mismatch: [{ beat: 2 }] }]), [{ beat: 2 }]);
+  assert.strictEqual(fitMod.mismatchesOf({ nope: 1 }), null);
+  assert.strictEqual(fitMod.mismatchesOf([]), null);
+  const seenFit = [];
+  const flagging = { readImage: async file => ({ mimeType: 'image/jpeg', data: String(file).slice(-4) }), judge: async ({ prompt, images }) => { seenFit.push({ prompt, images }); return JSON.stringify({ mismatch: [{ beat: 2, reason: 'the picture shows a waterspout' }] }); } };
+  const fitDraft = draft(faithful);
+  const flagged = await fitMod.checkImageFit({ script: fitDraft, story, ...flagging });
+  assert.strictEqual(flagged.passed, false);
+  assert.match(flagged.issues[0], /beat 2: the picture does not show what the narration says \(the picture shows a waterspout\)/);
+  assert.strictEqual(seenFit[0].images.length, faithful.length, 'one picture per narrated beat, in one request');
+  assert.ok(faithful.every((b, i) => seenFit[0].prompt.includes(`NARRATION ${i + 1}: ${b.narration}`)));
+  assert.strictEqual((await fitMod.checkImageFit({ script: { beats: skipAt(1).map(b => ({ ...b })) }, story, ...flagging })).checkedBeats, faithful.length - 1, 'a skipped beat has no picture to check');
+  // unchecked pictures never pass: no judge, a judge that throws, an unusable answer, an unreadable picture
+  const unavailable = async options => { try { await fitMod.checkImageFit({ script: fitDraft, story, ...options }); return null; } catch (error) { return error.code; } };
+  assert.strictEqual(await unavailable({}), 'VISION_UNAVAILABLE');
+  assert.strictEqual(await unavailable({ judge: async () => { throw new Error('503'); }, readImage: fitOk.readImage }), 'VISION_UNAVAILABLE');
+  assert.strictEqual(await unavailable({ judge: async () => 'I see ships.', readImage: fitOk.readImage }), 'VISION_UNAVAILABLE');
+  assert.strictEqual(await unavailable({ judge: fitOk.judge, readImage: async () => { throw new Error('no file'); } }), 'VISION_UNAVAILABLE');
+  // the mismatch reaches the writer (only that beat is rewritten) and a script whose picture still does not fit is rejected
+  const fitPrompts = [];
+  let mismatchOnce = true;
+  const fitLlm = { generateText: async prompt => { if (/strict fact-checker/.test(prompt)) return JSON.stringify(clean); fitPrompts.push(prompt); return JSON.stringify(fitPrompts.length === 1 ? draft(faithful) : { title: 'The Ship Found Empty', beats: faithful.map((b, i) => (i === 2 ? { skip: true } : b)) }); } };
+  const fitFlow = await writeGroundedScript({ story, llm: fitLlm, maxRevisions: 2, imageFit: { readImage: fitOk.readImage, judge: async ({ prompt }) => { if (/what the picture shows|say in one short sentence/.test(prompt)) return JSON.stringify({ pictures: [] }); const answer = mismatchOnce ? { mismatch: [{ beat: 3, reason: 'a lap desk is not the cargo' }] } : { mismatch: [] }; mismatchOnce = false; return JSON.stringify(answer); } } });
+  assert.ok(/beat 3: the picture does not show what the narration says/.test(fitPrompts[1]), 'the picture mismatch is in the rewrite notes');
+  assert.deepStrictEqual(fitFlow.metadata.creativeReview.imageFit, { passed: true, checkedBeats: faithful.length - 1 });
+  assert.ok(!fitFlow.sourceBeatIndexes.includes(2), 'the beat whose picture did not fit was dropped, not filled');
+  await assert.rejects(() => writeGroundedScript({ story, llm: fitLlm, maxRevisions: 1, imageFit: { readImage: fitOk.readImage, judge: async () => JSON.stringify({ mismatch: [{ beat: 3 }] }) } }), error => error.code === 'CREATIVE_REVIEW_REJECTED' && /picture does not fit/.test(error.message));
+  await assert.rejects(() => writeGroundedScript({ story, llm: { generateText: fitLlm.generateText } }), error => error.code === 'VISION_UNAVAILABLE');
+  // The writer is told what each picture shows (one vision request), and a missing vision model stops the job before any writing
+  const reading = await fitMod.describePictures({ story, readImage: fitOk.readImage, judge: async () => JSON.stringify({ pictures: [{ image: 1, shows: 'A brigantine under sail' }, { image: 3, shows: 'A desk with letters' }] }) });
+  assert.strictEqual(reading.length, story.plan.beats.length);
+  assert.deepStrictEqual([reading[0], reading[1], reading[2]], ['A brigantine under sail', null, 'A desk with letters']);
+  assert.deepStrictEqual(await fitMod.describePictures({ story, readImage: fitOk.readImage, judge: async () => 'not json' }), story.plan.beats.map(() => null), 'best effort: no description, no failure');
+  await assert.rejects(() => fitMod.describePictures({ story, readImage: fitOk.readImage, judge: async () => { throw new Error('429 quota'); } }), error => error.code === 'VISION_UNAVAILABLE');
+  // pictures are only looked at when the facts hold (free-tier vision quota)
+  let looks = 0;
+  const lookCounter = { readImage: fitOk.readImage, judge: async ({ prompt }) => { if (!/say in one short sentence/.test(prompt)) looks += 1; return JSON.stringify({ pictures: [], mismatch: [] }); } };
+  const factsFail = await require('../utils/dark-history/grounded-writer').reviewGrounded(draft(mutate(1, { narration: `${faithful[1].narration} Forty-two sailors vanished.` })), story, async () => JSON.stringify(clean), lookCounter);
+  assert.strictEqual(looks, 0, 'a draft with a fact problem costs no vision request');
+  assert.ok(!factsFail.failures.includes('a picture does not fit its narration'));
+  await require('../utils/dark-history/grounded-writer').reviewGrounded(draft(faithful), story, async () => JSON.stringify(clean), lookCounter);
+  assert.strictEqual(looks, 1);
+  assert.match(buildPrompt(story, null, null, ['A brigantine under sail']), /BEAT 1 [^\n]*the picture shows: A brigantine under sail/);
+  assert.ok(/narration must be about what its picture shows/.test(buildPrompt(story, null)));
+  let writes = 0;
+  await assert.rejects(() => writeGroundedScript({ story, llm: { generateText: async () => { writes += 1; return '{}'; } } }), error => error.code === 'VISION_UNAVAILABLE');
+  assert.strictEqual(writes, 0, 'no vision model: nothing is written (fail before spending)');
+  // the Gemini vision judge: pictures as inline data in order, then the prompt; falls through the free models; no client, no judge
+  assert.strictEqual(fitMod.makeVisionJudge({}), null);
+  const sent = [];
+  const gemini = { models: { generateContent: async request => { sent.push(request); if (request.model === 'm1') throw new Error('503 overloaded'); return { text: '{"mismatch":[]}' }; } } };
+  const judge = fitMod.makeVisionJudge({ gemini, model: 'm1' }, { models: ['m1', 'm2'] });
+  assert.strictEqual(await judge({ prompt: 'P', images: [{ mimeType: 'image/jpeg', data: 'AAAA' }, { mimeType: 'image/jpeg', data: 'BBBB' }] }), '{"mismatch":[]}');
+  assert.deepStrictEqual(sent.map(r => r.model), ['m1', 'm2']);
+  assert.deepStrictEqual(sent[1].contents[0].parts.map(p => (p.inlineData ? p.inlineData.data : p.text)), ['AAAA', 'BBBB', 'P']);
 
   // Seen on the VM: every rewrite fixed the flagged beat and broke another one, so three attempts never converged.
   // A rewrite now gets the previous draft and may change ONLY the beats the notes name; the others are restored as they were.
@@ -144,7 +205,7 @@ const words = s => s.split(/\s+/).length;
     rewritePrompts.push(prompt);
     return seq.shift();
   } };
-  const converged = await writeGroundedScript({ story, llm: converge, maxRevisions: 1 });
+  const converged = await writeGroundedScript({ story, imageFit: fitOk, llm: converge, maxRevisions: 1 });
   assert.strictEqual(converged.beats[2].narration, faithful[2].narration, 'a beat the notes did not name is restored from the previous draft');
   assert.strictEqual(converged.beats[1].narration, faithful[1].narration, 'the flagged beat was rewritten');
   assert.ok(/PREVIOUS DRAFT/.test(rewritePrompts[1]) && rewritePrompts[1].includes(broken[1].narration), 'the rewrite prompt carries the previous draft');
@@ -161,7 +222,7 @@ const words = s => s.split(/\s+/).length;
 
   // No draft passes: the job is rejected (fail closed), nothing is published from an unverified script.
   const liar = { generateText: async prompt => (/strict fact-checker/.test(prompt) ? JSON.stringify(clean) : JSON.stringify(draft(bad))) };
-  await assert.rejects(() => writeGroundedScript({ story, llm: liar, maxRevisions: 1 }), error => error.code === 'CREATIVE_REVIEW_REJECTED' && /fact-check/.test(error.message));
+  await assert.rejects(() => writeGroundedScript({ story, imageFit: fitOk, llm: liar, maxRevisions: 1 }), error => error.code === 'CREATIVE_REVIEW_REJECTED' && /fact-check/.test(error.message));
 
   // The VM sample report separates thrown errors, invalid/cut answers and provider truncation, per provider and model.
   const { instrument, toMarkdown } = require('./dark-history-judge-sample');
