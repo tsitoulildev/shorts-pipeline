@@ -8,6 +8,10 @@ const { validateYouTubeMetadata } = require('./youtube-metadata-validator');
 const { Logger } = require('./logger');
 const { MediaGenerationService } = require('./media-generation-service');
 const { assertExpectedChannel } = require('./youtube-channel-guard');
+const { isLive } = require('./dark-history/live');
+const { makeNarrator } = require('./dark-history/narration');
+const { renderStill, renderThumbnail, subtitleFilter } = require('./dark-history/documentary-render');
+const { defaultHttp } = require('./dark-history/http');
 
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 
@@ -84,9 +88,13 @@ class ProductionReadinessService {
     try {
       const freeMediaOnly = !/^(0|false|no)$/i.test(String(process.env.FREE_MEDIA_ONLY || 'true'));
       checks.push(await this.executeCheck('text_provider', 'AI text provider', true, () => this.probeText()));
-      checks.push(await this.executeCheck('image_provider', 'Dark Stickman image provider', true, () => this.probeImage(tempDir, Boolean(options.includePaidMedia))));
+      // Dark History live: the media and voice checks prove what the documentary path really uses (no image generator, no cloud voice).
+      const documentary = isLive();
+      checks.push(documentary
+        ? await this.executeCheck('image_provider', 'Documentary render (Wikimedia, real-image video, captions, thumbnail)', true, () => this.probeDocumentary(tempDir))
+        : await this.executeCheck('image_provider', 'Dark Stickman image provider', true, () => this.probeImage(tempDir, Boolean(options.includePaidMedia))));
       checks.push(await this.executeCheck('video_provider', 'AI video provider', !freeMediaOnly, () => this.probeVideoProvider(tempDir, Boolean(options.includePaidVideo))));
-      checks.push(await this.executeCheck('voice_narration', 'Voice narration', true, () => this.probeNarration(tempDir)));
+      checks.push(await this.executeCheck('voice_narration', documentary ? 'Voice narration (public-domain local voice)' : 'Voice narration', true, () => (documentary ? this.probeDocumentaryNarration(tempDir) : this.probeNarration(tempDir))));
       checks.push(await this.executeCheck('video_assembly', 'Audio/video assembly', true, () => this.probeVideoAssembly(tempDir)));
       checks.push(await this.executeCheck('youtube_access', 'YouTube channel access', true, () => this.probeYouTube()));
       checks.push(await this.executeCheck('upload_metadata', 'Upload metadata', true, () => this.probeMetadata()));
@@ -192,6 +200,30 @@ class ProductionReadinessService {
         freeOnly: !includePaidMedia
       }
     };
+  }
+
+  /** Wikimedia answers, and FFmpeg really does a Ken Burns clip, burned captions and a drawtext thumbnail (the pieces a Short needs). */
+  async probeDocumentary(tempDir) {
+    if (this.probes.documentary) return this.probes.documentary({ tempDir });
+    await defaultHttp.getJson('https://en.wikipedia.org/w/api.php', { action: 'query', meta: 'siteinfo', format: 'json' });
+    const image = path.join(tempDir, 'probe.png');
+    await runFFmpeg(['-y', '-f', 'lavfi', '-i', 'testsrc2=s=1200x800:d=1,format=rgb24', '-frames:v', '1', '-update', '1', image]);
+    const clip = await renderStill(image, 1, 'zoom-in', path.join(tempDir, 'probe.mp4'), { size: { width: 1200, height: 800 } });
+    await renderThumbnail({ imagePath: image, title: 'Readiness check', outPath: path.join(tempDir, 'probe-thumb.jpg') });
+    const srt = path.join(tempDir, 'probe.srt');
+    await fs.writeFile(srt, '1\n00:00:00,000 --> 00:00:01,000\nREADY\n');
+    await runFFmpeg(['-y', '-i', clip, '-vf', subtitleFilter(srt), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', path.join(tempDir, 'probe-captions.mp4')]);
+    return { message: 'Wikimedia answered and FFmpeg made a real-image clip, burned captions and a thumbnail.' };
+  }
+
+  async probeDocumentaryNarration(tempDir) {
+    if (this.probes.narration) return this.probes.narration({ tempDir });
+    const narrate = makeNarrator({ generator: new AIVideoGenerator(this.credentialManager.credentials || {}) });
+    const outputPath = path.join(tempDir, 'readiness-narration.mp3');
+    await narrate('Production readiness audio check.', outputPath);
+    const stats = await fs.stat(outputPath);
+    if (stats.size < 100) throw new Error('The local public-domain voice returned an empty audio file');
+    return { message: 'The local public-domain voice produced a narration sample.', details: { bytes: stats.size } };
   }
 
   async probeNarration(tempDir) {

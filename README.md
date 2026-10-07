@@ -12,8 +12,10 @@ Short videos about real, old, well documented events (shipwrecks, disappearances
 2. **Story pool.** A background job researches candidate events ahead of time (no living persons, nothing newer than about 50 years), downloads the images and keeps a stock of ready stories. When the stock runs low it raises an alert (and the code can compute a slower cadence), instead of publishing something weak.
 3. **Grounded script.** The writer may only narrate facts that are in the source text. Each beat lists the source sentences it relies on.
 4. **Fact-check gate.** Every number, name and quotation must be found in the source, and a second model pass checks that each sentence is supported. Anything unsupported rejects the script. The gate is never relaxed to hit a cadence.
-5. **Render** (a manual script for now, `scripts/dark-history-produce.js`; it refuses to run unless `DARK_HISTORY_PRODUCTION_ENABLED=true` and never uploads): slow zoom and pan (Ken Burns) on the real images, narration, burned-in captions, a thumbnail made from a real image, and a final gate that re-checks every image file, licence and credit before anything can be published.
-6. **Attribution.** The Wikipedia credit and the author, licence and URL of every image go, unchanged, into the video description.
+5. **Render**: slow zoom and pan (Ken Burns) on the real images, narration, burned-in captions, a thumbnail made from a real image, and a final gate that re-checks every image file, licence and credit before anything can be published. A narration is spoken by a public-domain local voice only. `scripts/dark-history-produce.js` makes one Short by hand for a check (it refuses to run unless `DARK_HISTORY_PRODUCTION_ENABLED=true` and never uploads).
+6. **Attribution.** The Wikipedia credit and the author, licence and URL of every image go, unchanged (line breaks included), into the video description.
+
+The scheduler uses this path only when `DARK_HISTORY_LIVE=true` (off by default). With it on, each Short comes from the story pool, passes the same quality checks as any production plus the documentary gate, and is scheduled by the normal publisher. If a production fails nothing is published and no other kind of Short is made: the story goes back to the pool (rejected after 3 failed attempts), an alert names the cause, and the next scheduler tick tries again. The weekly cadence never outruns the pool: the ready stories are spread over 14 days and an empty pool makes nothing.
 
 ## Requirements
 
@@ -50,6 +52,8 @@ Everything is configured through `.env` (copy `.env.example`; every key is expla
 | `YOUTUBE_UPLOAD_ENABLED` | Master switch for uploads. Off unless you turn it on. |
 | `APPROVAL_REQUIRED`, `AUTONOMOUS_MODE`, `AUTOMATION_PAUSED` | Who decides what is published. |
 | `DARK_HISTORY_POOL_ENABLED`, `DARK_HISTORY_DAILY_LLM_CALLS` | The background story research and its daily free-tier call budget. Off by default. |
+| `DARK_HISTORY_LIVE` | Makes every scheduled Short a Dark History Short (and runs the pool refill). Off by default; switching it back and restarting returns to the old path. |
+| `DARK_HISTORY_VOICE` | The narration voice, a public-domain Piper voice only (`en_US-ljspeech-high` by default). |
 | `DARK_HISTORY_PRODUCTION_ENABLED` | Allows the manual render script to run. Off by default. |
 | `API_KEY` | Protects the local API. Use a long random value. |
 

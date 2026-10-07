@@ -6,6 +6,8 @@ const fs = require('fs');
 const path = require('path');
 const { FREE_LICENSE } = require('./commons');
 const { checkFactsDeterministic } = require('./fact-check');
+const { PUBLIC_DOMAIN_VOICES } = require('./narration');
+const { normalizeYouTubeMetadata } = require('../youtube-metadata-validator');
 
 const NOT_FREE = /\b(nc|nd|fair use|non-?commercial|no derivatives)\b/i;
 const COMMONS_PAGE = /^https:\/\/commons\.wikimedia\.org\/wiki\/File:/;
@@ -15,8 +17,9 @@ const WIKIMEDIA_FILE = /^https:\/\/(upload|thumb)\.wikimedia\.org\//;
  * checkDocumentaryProduction({ story, script, description, video }) -> { passed, checks: [{ id, passed, message }] }.
  * story  = claimed story_pool row: { plan: { title, extract, folder, beats }, attribution, article_url, revision_id }
  * script = grounded script (beats with narration/evidence/images); video = { width, height, duration, hasAudio }
+ * audio (optional, the production's narration asset) adds the voice licence check
  */
-function checkDocumentaryProduction({ story, script, description, video }) {
+function checkDocumentaryProduction({ story, script, description, video, audio }) {
   const checks = [];
   const add = (id, passed, message) => checks.push({ id, passed: Boolean(passed), message });
   const beats = story?.plan?.beats || [];
@@ -55,6 +58,15 @@ function checkDocumentaryProduction({ story, script, description, video }) {
   const unnamed = images.filter(i => !String(description || '').includes(i.descriptionUrl) || !String(description || '').includes(i.license));
   add('every_image_credited', !unnamed.length, unnamed.length ? `not credited: ${unnamed.map(i => i.title).join(', ')}` : 'every image is credited with its license and URL');
   add('wikipedia_credit', /Wikipedia/.test(credit) && /CC BY-SA 4\.0/.test(credit) && credit.includes(story?.article_url || '\u0000'), 'Wikipedia text credit with license and article URL');
+
+  // What YouTube receives is what was approved: the upload normalizer must not change or cut the description (credits included).
+  add('description_survives_upload', Boolean(description) && normalizeYouTubeMetadata({ description }).description === description, 'the description reaches YouTube unchanged (line breaks and credits kept, within the length limit)');
+
+  // The voice: only a public-domain voice may narrate.
+  if (audio !== undefined) {
+    const voice = PUBLIC_DOMAIN_VOICES.find(name => String(audio?.model || '').endsWith(name));
+    add('voice_public_domain', Boolean(voice) && audio?.simulated !== true, voice ? `narrated with the public-domain voice ${voice}` : `narration voice "${audio?.model || 'unknown'}" is not an approved public-domain voice`);
+  }
 
   // Output sanity.
   add('video_format', video?.width === 1080 && video?.height === 1920 && video?.duration > 0 && video?.duration <= 60 && video?.hasAudio === true, `video ${video?.width}x${video?.height}, ${Number(video?.duration || 0).toFixed(1)}s, audio=${video?.hasAudio}`);

@@ -1,6 +1,8 @@
 const cron = require('node-cron');
 const { Logger } = require('../utils/logger');
-const channelIdentity = require('../config/channel-identity.json');
+const channelIdentity = require('../utils/channel-identity');
+const { isLive, pruneOutput, sustainableCadence } = require('../utils/dark-history/live');
+const { StoryPool } = require('../utils/dark-history/story-pool');
 
 class DailyAutomation {
   constructor(agents, database, options = {}) {
@@ -126,7 +128,8 @@ class DailyAutomation {
 
     // Start all scheduled tasks
     // Dark History story pool (off unless DARK_HISTORY_POOL_ENABLED=true; nothing in the fiction path reads it).
-    if (process.env.DARK_HISTORY_POOL_ENABLED === 'true') {
+    // (Dark History live implies the refill: without it the pool would run dry.)
+    if (process.env.DARK_HISTORY_POOL_ENABLED === 'true' || isLive()) {
       this.scheduledTasks.set('story-pool-refill',
         cron.schedule('15 */3 * * *', async () => {
           if (this.isEnabled) await this.refillStoryPool();
@@ -234,7 +237,17 @@ class DailyAutomation {
     this.lastSkipReason = null;
     const channelStrategy = this.db.getChannelStrategy ? await this.db.getChannelStrategy() : null;
     if (channelStrategy?.status === 'active') {
-      const target = Math.max(1, Math.min(35, Number(channelStrategy.cadence_per_week || ((channelIdentity.publishingCadence?.shortsPerDay?.target || 3) * 7))));
+      let target = Math.max(1, Math.min(35, Number(channelStrategy.cadence_per_week || ((channelIdentity.publishingCadence?.shortsPerDay?.target || 3) * 7))));
+      if (isLive()) {
+        // Dark History: the cadence never outruns the story pool. The ready stories are spread over 14 days; an empty pool makes nothing.
+        this.storyPool = this.storyPool || new StoryPool(this.db);
+        const sustainable = await sustainableCadence(this.storyPool, target);
+        if (sustainable.perWeek < 1) {
+          this.lastSkipReason = 'the Dark History story pool is empty (0 stories ready); the refill job is researching more';
+          return false;
+        }
+        target = sustainable.perWeek;
+      }
       const weeklyRows = await this.db.getAllRows(
         `SELECT details FROM generation_jobs
          WHERE status = 'completed'
@@ -576,6 +589,8 @@ class DailyAutomation {
     try {
       await this.cleanDirectoryOldFiles(tempDir, 7);
       await this.cleanDirectoryOldFiles(uploadsDir, 30);
+      const removed = pruneOutput();
+      if (removed) this.logger.info(`Removed ${removed} old Dark History output folder(s)`);
       this.logger.info('Old files cleaned up');
     } catch (error) {
       this.logger.error('Failed to clean up old files:', error);

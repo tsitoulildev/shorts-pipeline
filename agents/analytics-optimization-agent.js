@@ -428,7 +428,7 @@ class AnalyticsOptimizationAgent {
         category: 'analytics',
         message: 'YouTube Analytics data is unavailable for this measurement window.',
         impact: 'unknown',
-        recommendation: 'Do not optimize Horror Stickman prompts from simulated or missing metrics. Retry when real channel data is available.'
+        recommendation: 'Do not change the writing or the story choice from simulated or missing metrics. Retry when real channel data is available.'
       }];
     }
 
@@ -448,9 +448,9 @@ class AnalyticsOptimizationAgent {
       insights.push({
         type: 'observation',
         category: 'shorts_retention',
-        message: `Horror Short measured ${views} views, ${retention.toFixed(1)}% average viewed percentage, and ${Math.round(avgDuration)}s average view duration${completionContext !== null ? ` (~${completionContext.toFixed(1)}% of the ${durationSeconds}s runtime)` : ''}.`,
+        message: `Short measured ${views} views, ${retention.toFixed(1)}% average viewed percentage, and ${Math.round(avgDuration)}s average view duration${completionContext !== null ? ` (~${completionContext.toFixed(1)}% of the ${durationSeconds}s runtime)` : ''}.`,
         impact: 'contextual',
-        recommendation: 'Compare this Short against similar-length, comparable channel videos from the same traffic source where possible. Inspect the first 1-2 seconds, each escalation beat, and the final twist before changing the winning story structure.'
+        recommendation: 'Compare this Short against similar-length, comparable channel videos from the same traffic source where possible. Inspect the first 1-2 seconds (the hook fact), where viewers leave between beats, and the last beat before changing how stories are chosen or told.'
       });
     }
 

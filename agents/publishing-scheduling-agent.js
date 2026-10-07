@@ -4,7 +4,7 @@ const fsSync = require('fs');
 const path = require('path');
 const { Logger } = require('../utils/logger');
 const { assertValidYouTubeMetadata } = require('../utils/youtube-metadata-validator');
-const channelIdentity = require('../config/channel-identity.json');
+const channelIdentity = require('../utils/channel-identity');
 const { assertExpectedChannel, isChannelMismatch } = require('../utils/youtube-channel-guard');
 
 function assertUploadEnabled() {

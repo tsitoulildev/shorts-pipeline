@@ -9,7 +9,7 @@ const IMPORTANT_TYPES = new Set([
   'upload_published', 'upload_blocked', 'upload_failed', 'upload_outcome_unknown',
   'automation_paused', 'automation_resumed', 'upload_authorization_changed', 'auth_required',
   'generation_failure', 'autonomous_run_failure', 'autonomous_run_paused',
-  'content_rejected', 'review_required', 'production_stalled', 'automation_failure', 'story_pool_low'
+  'content_rejected', 'review_required', 'production_stalled', 'automation_failure', 'story_pool_low', 'documentary_failure'
 ]);
 const ICONS = { success: '✅', error: '🛑', warning: '⚠️', info: 'ℹ️' };
 const MAX_LENGTH = 3500;
