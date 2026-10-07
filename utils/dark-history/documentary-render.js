@@ -9,6 +9,10 @@ const W = 1080;
 const H = 1920;
 const FPS = 30;
 
+// No picture stays on screen longer than this (owner review: one desk photo was up for about 15 s). A beat whose narration is too long for its
+// pictures stops the render; the gate re-checks the stored scene durations before every upload.
+const MAX_IMAGE_SECONDS = 9;
+
 const MOTIONS = ['zoom-in', 'pan-right', 'zoom-out', 'pan-left'];
 
 /**
@@ -30,7 +34,10 @@ function kenBurnsFilter(motion, seconds, size = { width: 4, height: 3 }) {
   }[motion];
   return [
     '[0:v]split[a][b]',
-    `[a]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=40:6,eq=brightness=-0.2[bg]`,
+    // a tall picture (a newspaper page, a portrait) would show a blurred ghost of itself in the side bars and look repeated: plain dark there
+    size.width / size.height < 0.9
+      ? `[a]scale=${W}:${H},drawbox=x=0:y=0:w=iw:h=ih:color=0x0d0d0d:t=fill[bg]`
+      : `[a]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=40:6,eq=brightness=-0.2[bg]`,
     // photo: scaled 2x the frame width first so the slow zoom has no pixel jitter, then framed back to 1080 wide
     `[b]scale=${fgWidth * 2}:${fgHeight * 2},zoompan=${move}:d=1:s=${fgWidth}x${fgHeight}:fps=${FPS}[fg]`,
     `[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p,setsar=1`
@@ -61,9 +68,11 @@ function beatTimeline(beats, window) {
   });
 }
 
+// BorderStyle 3 draws each caption on a dark box (the box colour is OutlineColour, 81% opaque), so captions stay readable on any picture, also a
+// newspaper page; letters alone with an outline fell on text and could not be read.
 // libass lays an SRT out on a 384x288 script and scales it to the frame (x6.67 at 1920 px high): FontSize 10 is ~66 px, MarginV 64 is ~430 px above the bottom edge.
 // (The first version used FontSize 22 / MarginV 210, i.e. 147 px letters 1400 px up, in the top third of the picture.)
-const subtitleFilter = srtPath => `subtitles='${path.resolve(srtPath).replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'")}':force_style='FontName=Arial,FontSize=10,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=1,Shadow=0,Alignment=2,MarginV=64'`;
+const subtitleFilter = srtPath => `subtitles='${path.resolve(srtPath).replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'")}':force_style='FontName=Arial,FontSize=10,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H30000000,BorderStyle=3,Outline=2,Shadow=0,Alignment=2,MarginV=64'`;
 
 /**
  * renderDocumentary({ script, imageFolder, narrationPath, outDir }) -> { videoPath, srtPath, duration, segments }.
@@ -73,6 +82,12 @@ async function renderDocumentary({ script, imageFolder, narrationPath, outDir, s
   await fs.mkdir(outDir, { recursive: true });
   const window = await detectSpeechWindow(narrationPath, { signal });
   const timeline = beatTimeline(script.beats, window);
+  script.beats.forEach((beat, i) => {
+    const each = timeline[i].seconds / beat.images.length;
+    if (each > MAX_IMAGE_SECONDS) {
+      throw Object.assign(new Error(`beat ${i + 1} keeps one picture on screen for ${each.toFixed(1)} s (limit ${MAX_IMAGE_SECONDS} s); its narration is too long for its pictures`), { code: 'IMAGE_HELD_TOO_LONG' });
+    }
+  });
 
   const segments = [];
   let motionIndex = 0;
@@ -114,4 +129,4 @@ async function renderThumbnail({ imagePath, title, outPath, signal }) {
   return outPath;
 }
 
-module.exports = { renderDocumentary, renderStill, renderThumbnail, kenBurnsFilter, beatTimeline, subtitleFilter, MOTIONS, W, H };
+module.exports = { renderDocumentary, renderStill, renderThumbnail, kenBurnsFilter, beatTimeline, subtitleFilter, MOTIONS, MAX_IMAGE_SECONDS, W, H };
