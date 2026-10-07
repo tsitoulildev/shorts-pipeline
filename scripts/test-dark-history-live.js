@@ -373,6 +373,31 @@ function makeLlm(mode = { writer: 'ok' }) {
     assert.strictEqual(await scheduler.shouldGenerateContentToday(), true, '42 stories: the full 21 a week is allowed');
   }
 
+  // ---- the stall watchdog expects the pool-limited pace while live, and leaves an empty pool to its own alert ----
+  {
+    await db.executeQuery("UPDATE story_pool SET status = 'rejected'");
+    const alerts = [];
+    const longAgo = new Date(Date.now() - 40 * 3600000).toISOString();
+    const dbStall = Object.assign(Object.create(db), {
+      getChannelStrategy: async () => ({ status: 'active', cadence_per_week: 21 }),
+      getSetting: async key => (key === 'last_content_generation' ? longAgo : null),
+      getAllRows: async sql => (/generation_jobs WHERE status IN/.test(sql) ? [] : db.getAllRows(sql))
+    });
+    const stall = new DailyAutomation({}, dbStall, { notify: async n => alerts.push(n) });
+    stall.logger = silent;
+    stall.storyPool = pool;
+    process.env.DARK_HISTORY_LIVE = 'false';
+    assert.ok(await stall.checkProductionStall(), 'flag off: 40 h without a Short at 21 a week is a stall');
+    process.env.DARK_HISTORY_LIVE = 'true';
+    alerts.length = 0;
+    assert.strictEqual(await stall.checkProductionStall(), null, 'live with an empty pool: the pool alert speaks, not the stall alert');
+    assert.strictEqual(alerts.length, 0);
+    for (let i = 0; i < 3; i += 1) await pool.add({ title: `Slow ${i}`, status: 'ready', plan: { beats: [] }, attribution: 'x' });
+    const slow = await stall.checkProductionStall();
+    assert.ok(slow === null || slow.limitHours >= 100, '3 stories last 14 days at 1.5 a week: a 40 h gap is no stall (limit ' + (slow && slow.limitHours) + ' h)');
+    await db.executeQuery("UPDATE story_pool SET status = 'rejected'");
+  }
+
   // ---- readiness: with the switch on the checks prove the documentary path, not the old image generator and cloud voice ----
   {
     const seen = [];

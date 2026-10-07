@@ -215,7 +215,14 @@ class DailyAutomation {
     if (strategy?.status !== 'active') return null;
     const last = await this.db.getSetting('last_content_generation');
     if (!last) return null;
-    const target = Math.max(1, Math.min(35, Number(strategy.cadence_per_week || ((channelIdentity.publishingCadence?.shortsPerDay?.target || 3) * 7))));
+    let target = Math.max(1, Math.min(35, Number(strategy.cadence_per_week || ((channelIdentity.publishingCadence?.shortsPerDay?.target || 3) * 7))));
+    if (isLive()) {
+      // Dark History: the pool limits the cadence, so a slower pace is expected (an empty pool has its own alert, story_pool_low).
+      this.storyPool = this.storyPool || new StoryPool(this.db);
+      const sustainable = await sustainableCadence(this.storyPool, target);
+      if (sustainable.perWeek < 1) return null;
+      target = sustainable.perWeek;
+    }
     const limitHours = Math.max(Number(process.env.PRODUCTION_STALL_HOURS || 16), 2 * (7 * 24) / target);
     const hours = (Date.now() - new Date(last).getTime()) / 3600000;
     if (!(hours >= limitHours)) return null;
