@@ -24,18 +24,34 @@ function fitEntries(script, story) {
 
 function buildFitPrompt(entries) {
   const lines = entries.map(entry => `IMAGE ${entry.beat} (file title: "${String(entry.image?.title || '').replace(/\.(jpe?g|png)$/i, '')}"${entry.image?.description ? `; Commons description: ${String(entry.image.description).slice(0, 200)}` : ''})\nNARRATION ${entry.beat}: ${entry.narration}`).join('\n\n');
-  return `You check pictures for a true-story video. Below, each beat has the picture shown while its narration is spoken (the pictures follow in the same order as the beats, IMAGE numbers match NARRATION numbers).
+  return `You check pictures for a true-story video. Below, each beat has the picture shown while its narration is spoken (the pictures follow in the same order as the beats; IMAGE numbers match NARRATION numbers).
 
-Mark a beat as a MISMATCH when the picture does not show, or clearly belong to, what the narration says: the specific people, ship, place, document, object or event it names. A picture of something else is a mismatch (a waterspout for a sentence about pirates, a portrait of someone the sentence does not mention, a generic scene, a map of another place, a modern photo of an unrelated thing). A document, newspaper page, map, portrait, object or illustration of the right subject or period is fine. When you are unsure, mark a mismatch.
+For EVERY beat do three things, in this order:
+1. "shows": what the picture shows, in a few words (look at the picture, not at the text).
+2. "subject": the main subject of the narration sentence: the one person, ship, place, document, object or event the sentence is about.
+3. "fits": true only when the picture shows that main subject itself: the person, ship, place, document or object named, or a period picture of that exact event. A picture of a RELATED topic does not fit, even when the article discusses it and even when it illustrates a theory that is mentioned nearby. Examples that do NOT fit: a waterspout photo under a sentence about pirates or about belongings left undisturbed; a lap desk under a sentence about building, launching or crewing a ship; a portrait of one person under a sentence about another; a map of another region; a modern or generic photo. Examples that fit: the portrait of the judge named in the sentence; the ship named; the newspaper page the sentence is about. When you are unsure, "fits" is false.
 
 ${lines}
 
-Return JSON only: {"mismatch":[{"beat":5,"reason":"the picture shows a waterspout, the narration is about pirates"}]}. An empty list means every picture fits its narration.`;
+Return JSON only: {"beats":[{"beat":1,"shows":"...","subject":"...","fits":true}]} with one entry per beat, in order.`;
 }
 
-/** The reply as a list of mismatches: { mismatch: [...] } or that object in an array. null when it is neither (unusable). */
-function mismatchesOf(parsed) {
-  const answer = Array.isArray(parsed) ? parsed.find(item => item && typeof item === 'object' && 'mismatch' in item) : parsed;
+/**
+ * The reply as a list of mismatches. Accepted shapes: { beats: [{ beat, fits }] } (every expected beat must be present, a missing or
+ * non-true "fits" is a mismatch), { mismatch: [...] }, and either of them wrapped in an array. null when it is none of these (unusable).
+ */
+function mismatchesOf(parsedReply, expectedBeats = null) {
+  let parsed = parsedReply;
+  const isObject = item => item && typeof item === 'object' && !Array.isArray(item);
+  // a bare array of per-beat verdicts (seen from the real model) is the beats list
+  if (Array.isArray(parsed) && parsed.length && parsed.every(item => isObject(item) && 'beat' in item)) parsed = { beats: parsed };
+  const answer = Array.isArray(parsed) ? parsed.find(item => isObject(item) && ('beats' in item || 'mismatch' in item)) : parsed;
+  if (Array.isArray(answer?.beats)) {
+    const byBeat = new Map(answer.beats.filter(isObject).map(item => [Number(item.beat), item]));
+    const wanted = expectedBeats || [...byBeat.keys()];
+    if (!wanted.length) return null;
+    return wanted.filter(beat => byBeat.get(beat)?.fits !== true).map(beat => ({ beat, reason: byBeat.has(beat) ? `the picture shows ${String(byBeat.get(beat).shows || 'something else').slice(0, 80)}, the narration is about ${String(byBeat.get(beat).subject || 'something else').slice(0, 80)}` : 'the check gave no verdict for this beat' }));
+  }
   return Array.isArray(answer?.mismatch) ? answer.mismatch : null;
 }
 
@@ -62,7 +78,7 @@ async function checkImageFit({ script, story, judge, readImage = readImageForMod
     throw fail('VISION_UNAVAILABLE', `the pictures could not be checked: ${String(error.message).slice(0, 160)}`);
   }
   let mismatches;
-  try { mismatches = mismatchesOf(parseJsonResponse(reply)); } catch (_error) { mismatches = null; }
+  try { mismatches = mismatchesOf(parseJsonResponse(reply), entries.map(entry => entry.beat)); } catch (_error) { mismatches = null; }
   if (!mismatches) throw fail('VISION_UNAVAILABLE', `the picture check returned an unusable answer: ${JSON.stringify(String(reply)).slice(0, 160)}`);
   const issues = mismatches.map(item => {
     const beat = Number(item?.beat ?? item?.id ?? item);
