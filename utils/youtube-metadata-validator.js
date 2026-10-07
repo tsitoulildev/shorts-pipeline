@@ -2,9 +2,10 @@ const MAX_TITLE_LENGTH = 100;
 const MAX_DESCRIPTION_LENGTH = 5000;
 const MAX_TAGS_LENGTH = 450;
 
-function removeControlCharacters(value, replacement = '') {
+function removeControlCharacters(value, replacement = '', keepNewlines = false) {
   return Array.from(String(value ?? '')).map(character => {
     const code = character.charCodeAt(0);
+    if (keepNewlines && code === 10) return character;
     return code <= 31 || code === 127 ? replacement : character;
   }).join('');
 }
@@ -37,7 +38,8 @@ function normalizeYouTubeMetadata(metadata = {}) {
   const snippet = metadata.snippet || metadata.seo || metadata;
   return {
     title: cleanText(snippet.title).slice(0, MAX_TITLE_LENGTH),
-    description: removeControlCharacters(snippet.description).slice(0, MAX_DESCRIPTION_LENGTH).trim(),
+    // Line breaks stay: documentary credits are one line per source, and gluing them breaks the URLs.
+    description: removeControlCharacters(String(snippet.description ?? '').replace(/\r\n?/g, '\n'), '', true).slice(0, MAX_DESCRIPTION_LENGTH).trim(),
     tags: normalizeTags(snippet.tags),
     categoryId: String(snippet.categoryId ?? snippet.metadata?.category ?? '22').trim(),
     defaultLanguage: String(snippet.defaultLanguage ?? snippet.metadata?.language ?? 'en').trim(),
