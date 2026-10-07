@@ -21,11 +21,11 @@ function buildPrompt(story, brief, previous = null, shows = []) {
 
 HOW IT SHOULD SOUND
 - Tell ONE tight story in order: the most striking fact, what happened (say plainly who or what was lost, killed or unexplained), what was found or decided, what is still unknown. Every beat adds one new fact, so the viewer is pulled forward.
+- Build an arc, not a list: the hook raises a question, every next beat answers it and raises the next (what happened, what was found, who was suspected or blamed, what is still unexplained), and the last beat is the climax: the real fact that is still open (what was never found, proven or explained, as the source states it). Link the beats with short plain connectives (then, days later, investigators found, but) so the Short flows as one story; connectives add no facts.
 - Skip every passage that is only background (how the ship was built or registered, who owned it) or epilogue (later fate, books and retellings) unless it IS the story. Four to six strong beats beat seven weak ones.
 - Restate the evidence in your own short spoken sentences. Do not copy a long source sentence, and leave out minor detail (registration dates, official titles, ship numbers) unless the story needs it. At most two numbers or dates per beat.
 - Concrete nouns and verbs. No filler and no adjectives such as "shocking", "mysterious" or "chilling". Each beat's narration must be about what its picture shows (the same people, ship, place, document or object), told with facts from that beat's source passage; a vision check rejects a beat whose picture shows something else. If the passage has no fact about what the picture shows, skip the beat.
 - Beat 1 is the hook: the single most striking true fact of the whole story in 14 words or fewer (it may come from the article lead). No "imagine", no question to the viewer.
-- The last beat ends on the real unresolved fact or consequence, never on an invented twist.
 
 HARD RULES (a fact-checker rejects the whole script if one is broken):
 - Write exactly ${story.plan.beats.length} entries, one per source passage below, in order. You may skip a passage that adds nothing to the story: write {"skip":true} for it and its picture is left out (at least 4 beats must stay narrated, and the story must still make sense in order). ${WORDS.beatMin}-${WORDS.beatMax} spoken words per beat, ${WORDS.min}-${WORDS.max} words in total (the voice speaks about two words a second and the Short must stay under 60 seconds).

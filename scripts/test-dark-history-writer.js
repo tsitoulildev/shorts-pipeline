@@ -182,6 +182,7 @@ const fitOk = { judge: async () => JSON.stringify({ mismatch: [] }), readImage: 
   assert.strictEqual(looks, 1);
   assert.match(buildPrompt(story, null, null, ['A brigantine under sail']), /BEAT 1 [^\n]*the picture shows: A brigantine under sail/);
   assert.ok(/narration must be about what its picture shows/.test(buildPrompt(story, null)));
+  assert.ok(/Build an arc, not a list/.test(buildPrompt(story, null)) && /the climax: the real fact that is still open/.test(buildPrompt(story, null)));
   let writes = 0;
   await assert.rejects(() => writeGroundedScript({ story, llm: { generateText: async () => { writes += 1; return '{}'; } } }), error => error.code === 'VISION_UNAVAILABLE');
   assert.strictEqual(writes, 0, 'no vision model: nothing is written (fail before spending)');
