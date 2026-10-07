@@ -114,4 +114,4 @@ async function renderThumbnail({ imagePath, title, outPath, signal }) {
   return outPath;
 }
 
-module.exports = { renderDocumentary, renderThumbnail, kenBurnsFilter, beatTimeline, subtitleFilter, MOTIONS, W, H };
+module.exports = { renderDocumentary, renderStill, renderThumbnail, kenBurnsFilter, beatTimeline, subtitleFilter, MOTIONS, W, H };

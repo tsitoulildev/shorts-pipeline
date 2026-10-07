@@ -3,6 +3,8 @@
 const crypto = require('crypto');
 
 const TARGET_DAYS = 14;
+// a story whose production failed this many times is rejected for good (with the last reason) instead of looping every tick
+const MAX_ATTEMPTS = 3;
 
 /** Days of content the ready stories cover at the given cadence (stories per week). */
 const poolDays = (ready, perWeek) => (perWeek > 0 ? (ready * 7) / perWeek : Infinity);
@@ -25,7 +27,10 @@ class StoryPool {
     await this.db.executeQuery(`CREATE TABLE IF NOT EXISTS story_pool (
       id TEXT PRIMARY KEY, title TEXT NOT NULL UNIQUE, status TEXT NOT NULL, article_url TEXT, revision_id INTEGER,
       plan TEXT, attribution TEXT, share_alike INTEGER DEFAULT 0, reason TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP, used_at TEXT)`);
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP, used_at TEXT, attempts INTEGER DEFAULT 0)`);
+    // a table created before attempts existed
+    const columns = await this.db.getAllRows('PRAGMA table_info(story_pool)');
+    if (!columns.some(column => column.name === 'attempts')) await this.db.executeQuery('ALTER TABLE story_pool ADD COLUMN attempts INTEGER DEFAULT 0');
     this.created = true;
   }
 
@@ -59,6 +64,22 @@ class StoryPool {
     return changes ? { ...row, plan: JSON.parse(row.plan), share_alike: Boolean(row.share_alike) } : this.claimNext();
   }
 
+  /**
+   * A claimed story whose production failed goes back to 'ready' for the next tick, or becomes 'rejected' (with the reason)
+   * once it has failed maxAttempts times. A failure that is not the story's fault (cancelled, restart) passes countAttempt: false.
+   */
+  async release(id, { reason = null, countAttempt = true, maxAttempts = MAX_ATTEMPTS } = {}) {
+    await this.ensure();
+    const row = await this.db.getRow('SELECT attempts FROM story_pool WHERE id = ?', [id]);
+    if (!row) return null;
+    const attempts = (row.attempts || 0) + (countAttempt ? 1 : 0);
+    const rejected = attempts >= maxAttempts;
+    const text = String(reason || '').replace(/\s+/g, ' ').slice(0, 300);
+    await this.db.executeQuery('UPDATE story_pool SET status = ?, attempts = ?, reason = ?, used_at = NULL WHERE id = ?',
+      [rejected ? 'rejected' : 'ready', attempts, rejected ? `production failed ${attempts} times, last: ${text}` : (text || null), id]);
+    return { status: rejected ? 'rejected' : 'ready', attempts };
+  }
+
   async status(perWeek) {
     const ready = await this.readyCount();
     const days = poolDays(ready, perWeek);
@@ -66,4 +87,4 @@ class StoryPool {
   }
 }
 
-module.exports = { StoryPool, poolDays, allowedCadencePerWeek, TARGET_DAYS };
+module.exports = { StoryPool, poolDays, allowedCadencePerWeek, TARGET_DAYS, MAX_ATTEMPTS };

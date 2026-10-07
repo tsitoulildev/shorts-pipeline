@@ -6,7 +6,7 @@ const { SceneRepairService } = require('../utils/scene-repair-service');
 const { runFFmpeg, getMediaDuration } = require('../utils/ffmpeg');
 const { ambientEnabled, mixHorrorAudio } = require('../utils/audio-mix');
 const { detectSpeechWindow, buildCaptionCues, cuesToSrt } = require('../utils/speech-timing');
-const channelIdentity = require('../config/channel-identity.json');
+const channelIdentity = require('../utils/channel-identity');
 
 class ProductionManagementAgent {
   constructor(db, credentials) {

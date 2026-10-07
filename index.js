@@ -28,8 +28,10 @@ const { AITextService } = require('./utils/ai-text-service');
 const { AgentContractService } = require('./utils/agent-contract-service');
 const { DiscoverabilityService } = require('./utils/discoverability-service');
 const { resolveControlState, publicationState, recordUploadAuthorization } = require('./utils/publishing-policy');
+const { isLive, isDocumentary, produceFromPool, releaseAfterFailure, PIPELINE: DOCUMENTARY_PIPELINE } = require('./utils/dark-history/live');
+const { StoryPool } = require('./utils/dark-history/story-pool');
 const { version } = require('./package.json');
-const channelIdentity = require('./config/channel-identity.json');
+const channelIdentity = require('./utils/channel-identity');
 const chalk = require('chalk');
 
 class YouTubeAutomationAgent {
@@ -65,6 +67,7 @@ class YouTubeAutomationAgent {
       this.db = new Database();
       await this.db.initialize();
       await this.db.markInterruptedJobs();
+      await this.releaseInterruptedDocumentaryJobs();
       // Shorts produced before the evidence-based QA gates existed carry no such evidence.
       // Mark the upgrade moment once; the gates are strict for everything created after it.
       if (!await this.db.getSetting('qa_evidence_gates_since')) {
@@ -871,6 +874,7 @@ class YouTubeAutomationAgent {
 
     this.app.post('/api/operator/start', protect, async (req, res) => {
       try {
+        if (isLive()) return res.status(409).json({ success: false, error: 'Dark History is live: stories come from the story pool, not from the planner' });
         if (this.setupRequired || !this.agents.strategy) {
           return res.status(503).json({ success: false, error: 'Finish setup with npm run walkthrough before activating the autonomous operator' });
         }
@@ -934,6 +938,7 @@ class YouTubeAutomationAgent {
 
     this.app.post('/api/operator/runs/:runId/resume', protect, async (req, res) => {
       try {
+        if (isLive()) return res.status(409).json({ success: false, error: 'Dark History is live: operator runs of the old planner are not resumed' });
         if (this.setupRequired || !this.agents.strategy) {
           return res.status(503).json({ success: false, error: 'Finish setup before resuming the autonomous operator' });
         }
@@ -1281,6 +1286,7 @@ class YouTubeAutomationAgent {
       error.status = 503;
       throw error;
     }
+    if (isLive()) return this.startDocumentaryJob(input);
     if (['scheduler', 'autonomous_operator'].includes(input.source)) {
       await this.readiness?.assertReady('Automated generation');
     }
@@ -1329,6 +1335,13 @@ class YouTubeAutomationAgent {
     }
     if (!['failed', 'interrupted'].includes(job.status)) {
       const error = new Error('Only failed or interrupted generation jobs can be resumed');
+      error.status = 409;
+      throw error;
+    }
+    if (isDocumentary(job)) {
+      // The old pipeline would turn the story's title into a stickman script. A documentary job is retried as a new job.
+      await this.releaseInterruptedDocumentaryJobs();
+      const error = new Error('A Dark History job is not resumed; the scheduler starts a new job with the next story');
       error.status = 409;
       throw error;
     }
@@ -1419,6 +1432,8 @@ class YouTubeAutomationAgent {
     // (2026-10-04: the scheduler logged six "queued" operator runs between 06:00 and 16:00 UTC while no
     // generation job was created.)
     await this.readiness?.assertReady('Automated generation');
+    // Dark History: the stories come from the pool, not from the planner (no research or planning call is made).
+    if (isLive()) return this.startDocumentaryJob(input);
     const strategy = await this.db.getChannelStrategy();
     if (strategy?.status === 'active') {
       const weeklyRows = await this.db.getAllRows(
@@ -1449,7 +1464,8 @@ class YouTubeAutomationAgent {
       const result = await this.generateContent(input.topic, input.style, input.length, {
         jobId,
         strategyContext: input.strategyContext,
-        abortSignal
+        abortSignal,
+        pipeline: input.pipeline
       });
       await this.db.updateGenerationJob(jobId, {
         status: 'completed',
@@ -1498,7 +1514,7 @@ class YouTubeAutomationAgent {
         details: { failedStage },
         completedAt: new Date().toISOString()
       });
-      await this.operator.notify({
+      if (!error.alerted) await this.operator.notify({
         type: cancelled ? 'generation_cancelled' : 'generation_failure',
         level: cancelled ? 'warning' : 'error',
         title: cancelled ? 'Generation cancelled' : 'Generation failed',
@@ -1535,6 +1551,7 @@ class YouTubeAutomationAgent {
     try {
       const control = await resolveControlState(this.db);
       if (!control.autonomousMode || control.automationPaused || !this.autonomous) return null;
+      if (isLive()) return null; // old planner runs and old jobs are never resumed while Dark History is live
       const strategy = await this.db.getChannelStrategy();
       if (strategy?.status !== 'active') return null;
       if (await this.db.getActiveOperatorRun()) return null;
@@ -1704,6 +1721,7 @@ class YouTubeAutomationAgent {
   }
 
   async generateContent(topic = null, style = null, _length = 'short', options = {}) {
+    if (options.pipeline === DOCUMENTARY_PIPELINE) return this.generateDocumentaryContent(options);
     this.logger.info('Starting content generation pipeline...');
     const { jobId = null, strategyContext: rawStrategyContext = {}, abortSignal = null } = options;
     const strategyContext = rawStrategyContext || {};
@@ -1912,6 +1930,149 @@ class YouTubeAutomationAgent {
         controlMode: control.mode
       };
     });
+  }
+
+  getStoryPool() {
+    if (!this.storyPool) this.storyPool = new StoryPool(this.db);
+    return this.storyPool;
+  }
+
+  /** Starts a Dark History job (same guards as startGenerationJob); the work runs in the background like every job. */
+  async startDocumentaryJob(input = {}) {
+    if (this.setupRequired || !this.agents.strategy) {
+      const error = new Error('Finish setup with npm run walkthrough before generating content');
+      error.status = 503;
+      throw error;
+    }
+    if (['scheduler', 'autonomous_operator'].includes(input.source)) await this.readiness?.assertReady('Automated generation');
+    const maxConcurrent = Math.max(1, parseInt(process.env.MAX_CONCURRENT_JOBS || '1', 10));
+    if (this.activeJobs.size >= maxConcurrent) {
+      const error = new Error(`Generation is busy (${this.activeJobs.size}/${maxConcurrent} active jobs). Try again when the current job finishes.`);
+      error.status = 429;
+      throw error;
+    }
+    const job = await this.db.createGenerationJob({ topic: null, style: 'documentary', length: 'short', source: input.source || 'manual' });
+    await this.db.updateGenerationJob(job.id, { details: { pipeline: DOCUMENTARY_PIPELINE } });
+    const controller = new AbortController();
+    this.jobAbortControllers.set(job.id, controller);
+    const work = this.runGenerationJob(job.id, { pipeline: DOCUMENTARY_PIPELINE, topic: null, style: 'documentary', length: 'short', strategyContext: {} }, controller.signal)
+      .catch(error => this.logger.error(`Dark History job ${job.id} failed: ${error.message}`))
+      .finally(() => {
+        this.activeJobs.delete(job.id);
+        this.jobAbortControllers.delete(job.id);
+      });
+    this.activeJobs.set(job.id, work);
+    return job;
+  }
+
+  /**
+   * One Dark History Short: claim the next pool story, write the grounded script, render, run every gate, schedule.
+   * A failure never falls back to the old pipeline and never publishes weaker content: the story returns to the pool (rejected
+   * after 3 failed attempts), the owner is alerted with the cause, and the next scheduler tick tries again.
+   */
+  async generateDocumentaryContent({ jobId = null, abortSignal = null } = {}) {
+    await this.assertJobMayContinue(jobId, 'strategy');
+    const pool = this.getStoryPool();
+    const llm = this.agents.strategy?.aiTextService || this.agents.scriptWriter?.aiTextService;
+    let storyId = null;
+    let title = null;
+    try {
+      if (!llm) throw new Error('No text provider is configured for the grounded writer');
+      const produced = await produceFromPool({
+        pool, llm, generator: this.agents.production?.aiVideoGenerator, signal: abortSignal, logger: this.logger,
+        onStage: async (stage, progress, info) => {
+          if (info?.storyId) {
+            storyId = info.storyId;
+            title = info.topic;
+            await this.db.updateGenerationJob(jobId, { details: { storyId, storyTitle: title } });
+          }
+          await this.updateJobStage(jobId, stage, progress);
+        }
+      });
+      const { productionData } = produced;
+      const profile = await this.db.getChannelProfile() || {};
+      await this.updateJobStage(jobId, 'quality_review', 90);
+      const contentId = await this.db.saveProductionData(productionData);
+      await this.db.saveProductionSnapshot(productionData);
+      if (!this.provenance) this.provenance = new ProvenanceService(this.db);
+      productionData.provenance = await this.provenance.initialize(contentId, productionData);
+      productionData.discoverability = this.discoverability
+        ? await this.discoverability.auditProduction(productionData, profile, 'youtube')
+        : null;
+      const control = await resolveControlState(this.db);
+      const quality = await this.operator.runQualityChecks(productionData, profile);
+      const reviewStatus = quality.passed ? (control.approvalRequired ? 'needs_review' : 'approved') : 'needs_attention';
+      await this.db.saveContentReview(contentId, {
+        status: reviewStatus,
+        qualityChecks: quality.checks,
+        editorData: {},
+        reviewNotes: quality.passed ? null : `Blocking checks failed: ${quality.blockingFailures.join(', ')}`,
+        reviewedAt: control.approvalRequired ? null : new Date().toISOString()
+      });
+      let scheduleEntry = null;
+      if (reviewStatus === 'approved') {
+        scheduleEntry = await this.agents.publishing.scheduleContent(productionData);
+        await this.db.updateProductionStatus(contentId, scheduleEntry ? 'scheduled' : productionData.status);
+        if (!scheduleEntry) {
+          throw Object.assign(new Error('The Short passed every gate but no publish slot was created'), { code: 'DOCUMENTARY_NOT_SCHEDULED' });
+        }
+      } else {
+        await this.db.updateProductionStatus(contentId, reviewStatus);
+        if (!quality.passed) {
+          throw Object.assign(new Error(`Quality gates rejected the Short: ${quality.blockingFailures.join(', ')}`), { code: 'AUTONOMOUS_QUALITY_REJECTED', status: 409 });
+        }
+        await this.operator.notify({
+          type: 'review_required', level: 'info', title: 'Content ready for review',
+          message: `${productionData.script.title} is ready for approval`, data: { contentId, qualityScore: quality.score }
+        });
+      }
+      return {
+        contentId,
+        title: productionData.script.title,
+        topic: productionData.strategy.topic,
+        status: productionData.status,
+        reviewStatus,
+        qualityScore: quality.score,
+        scheduledFor: scheduleEntry ? scheduleEntry.publishTime : null,
+        publicationState: publicationState({ qaPassed: quality.passed, control }),
+        controlMode: control.mode
+      };
+    } catch (error) {
+      // produceFromPool already returned the story for its own failures; a failure after it (gates, schedule) is released here
+      if (storyId && error.attempts === undefined) await releaseAfterFailure(pool, storyId, title, error);
+      await this.alertDocumentaryFailure(error, jobId);
+      error.alerted = true;
+      throw error;
+    }
+  }
+
+  async alertDocumentaryFailure(error, jobId) {
+    if (['AUTOMATION_PAUSED', 'JOB_CANCELLED'].includes(error.code)) return;
+    const attempts = error.attempts ? ` (attempt ${error.attempts} of 3 for this story)` : '';
+    await this.operator.notify({
+      type: 'documentary_failure',
+      level: 'error',
+      title: error.storyRejected ? 'Dark History story rejected after repeated failures' : 'Dark History production failed',
+      message: `${error.storyTitle ? `"${error.storyTitle}": ` : ''}${String(error.message).slice(0, 900)}${attempts}. Nothing was published and no other kind of Short was made instead; the next scheduler tick tries again${error.storyRejected ? ' with another story' : ''}.`,
+      data: { jobId, storyId: error.storyId || null, attempts: error.attempts || null },
+      dedupeKey: `documentary_failure:${error.code || 'error'}:${String(error.message).slice(0, 60)}`,
+      dedupeMinutes: 360
+    });
+  }
+
+  /** A documentary job that was running when the process stopped: close it and give its story back (not the story's fault). */
+  async releaseInterruptedDocumentaryJobs() {
+    try {
+      const rows = await this.db.getAllRows("SELECT id, details FROM generation_jobs WHERE status = 'interrupted'");
+      for (const row of rows) {
+        const details = typeof row.details === 'string' ? JSON.parse(row.details || '{}') : (row.details || {});
+        if (details.pipeline !== DOCUMENTARY_PIPELINE) continue;
+        if (details.storyId) await this.getStoryPool().release(details.storyId, { reason: 'the job was interrupted by a restart', countAttempt: false });
+        await this.db.updateGenerationJob(row.id, { status: 'failed', error: 'Interrupted by a restart; the story went back to the pool and the scheduler starts a new job', details: { storyId: null } });
+      }
+    } catch (error) {
+      this.logger.warn(`Could not release interrupted Dark History jobs: ${error.message}`);
+    }
   }
 
   async runGenerationStage(jobId, stage, progress, producer) {

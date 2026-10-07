@@ -1,0 +1,42 @@
+{
+  "version": 3,
+  "workingIdentity": "Dark History: short, true, documented stories",
+  "language": "English",
+  "format": "Faceless documentary Shorts: real archival images with slow motion, a calm public-domain voice, burned-in captions",
+  "corePromise": "A real shipwreck, disappearance or disaster told in under a minute, only from what the sources state, with every image credited.",
+  "audience": "Global English-speaking viewers who like true history, unsolved mysteries and documentary storytelling.",
+  "primaryFormat": {
+    "type": "short",
+    "targetSeconds": [35, 58],
+    "targetWords": [70, 100],
+    "shortsRole": "Core channel identity and primary publishing surface."
+  },
+  "contentPillars": [
+    {"id": "sea-mysteries", "label": "Shipwrecks and Ships Found Empty", "keywords": ["ship", "shipwreck", "lighthouse", "sea", "voyage"]},
+    {"id": "vanishings", "label": "Disappearances and Unsolved Cases", "keywords": ["disappearance", "expedition", "vanished", "unsolved", "missing"]},
+    {"id": "disasters", "label": "Disasters and Catastrophes", "keywords": ["explosion", "fire", "flood", "collapse", "eruption"]},
+    {"id": "historic-mysteries", "label": "Historic Mysteries", "keywords": ["mystery", "legend", "expedition", "ruins", "manuscript"]}
+  ],
+  "storyCriteria": [
+    "The event is real, at least 50 years old, and involves no living person.",
+    "Every beat has relevant, license-checked real images; a beat without one is dropped, never filled.",
+    "Every claim maps to a source sentence (verbatim evidence); numbers, names and quotations are in the source.",
+    "The Wikipedia text credit and the author, license and URL of every image go into the description unchanged.",
+    "The Short fits 35-58 seconds and normally 70-100 spoken words."
+  ],
+  "avoid": [
+    "Invented detail, emotion, motive, dialogue or certainty.",
+    "AI-generated images of real events, or stand-in images.",
+    "Living people, recent tragedies, graphic gore as the main appeal.",
+    "Near-duplicate stories or a template that makes every Short look the same."
+  ],
+  "publishingCadence": {
+    "shortsPerDay": {"min": 1, "target": 3, "max": 4, "scaleCeiling": 20},
+    "initialPolicy": "Up to 3 Shorts per day (21 per week) while the story pool holds 14 days of stories; fewer when it runs low.",
+    "schedulingPolicy": "Autonomous mode assigns safe Shorts publish slots.",
+    "qualityPolicy": "Cadence is subordinate to quality: a gate that fails rejects the Short, no gate is relaxed to keep the pace, and a low story pool lowers the cadence."
+  },
+  "channelName": "Dark History",
+  "brandTagline": "True stories, told from the record.",
+  "channelDescription": "Short, true, documented stories of shipwrecks, disappearances and disasters, told from the historical record with real archival images. Sources and image credits are in every description."
+}

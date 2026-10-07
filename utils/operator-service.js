@@ -7,6 +7,7 @@ const { evaluateStoredReview } = require('./creative-review');
 const { grayThumbnail, evaluateVisualDistance, evaluateCharacterConsistency, evaluateSceneVariety } = require('./visual-variety');
 const { sendTelegram } = require('./telegram-notifier');
 const { maxBeatSeconds } = require('./beat-balance');
+const { checkDocumentaryProduction } = require('./dark-history/documentary-gate');
 const { detectSpeechWindow, parseSrt, analyzeOpeningFrames, evaluateHook, evaluateCaptionSync } = require('./speech-timing');
 
 class OperatorService {
@@ -456,6 +457,12 @@ class OperatorService {
           ? 'No externally verifiable factual claims were declared'
           : `${unresolved} factual claim${unresolved === 1 ? '' : 's'} still require evidence review`));
 
+    // A Dark History production also passes its own gate (footage, licences, hashes, fact-check re-run, attribution, voice),
+    // re-evaluated here from the files on disk, so it holds again right before every upload.
+    if (production.strategy?.pipeline === 'dark-history') {
+      for (const check of await this.documentaryChecks(production)) checks.push(this.check(`dh_${check.id}`, check.passed, check.message));
+    }
+
     const discoverability = production.discoverability;
     if (discoverability) {
       const actionable = (discoverability.findings || []).filter(finding =>
@@ -497,6 +504,23 @@ class OperatorService {
       blockingFailures: blockingFailures.map(check => check.id),
       checks
     };
+  }
+
+  /** The documentary gate's checks for a stored production; a gate that cannot run is a failed gate. */
+  async documentaryChecks(production) {
+    try {
+      const finalVideo = production.assets?.finalVideo;
+      let video = null;
+      try {
+        const streams = await probeMediaStreams(finalVideo.path);
+        video = { width: streams.width, height: streams.height, duration: await getMediaDuration(finalVideo.path), hasAudio: streams.hasAudio };
+      } catch (_error) { video = null; }
+      return checkDocumentaryProduction({
+        story: production.strategy.documentary?.story, script: production.script, description: production.seo?.description, video, audio: production.assets?.audio
+      }).checks;
+    } catch (error) {
+      return [{ id: 'gate_error', passed: false, message: `the documentary gate could not run: ${String(error.message).slice(0, 160)}` }];
+    }
   }
 
   normalizedTopicTokens(value) {
