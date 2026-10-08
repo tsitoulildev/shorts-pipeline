@@ -4,6 +4,10 @@ const channelIdentity = require('../utils/channel-identity');
 const { isLive, pruneOutput, sustainableCadence } = require('../utils/dark-history/live');
 const { StoryPool } = require('../utils/dark-history/story-pool');
 
+// Dark History slots: one Short per slot (3 a day, 8 h apart). Minute 40 sits between every other job (:00 :15 :20 :30 :45).
+const DEFAULT_SLOT_CRON = '40 1,9,17 * * *';
+const SLOT_PACING_TOLERANCE_HOURS = 1; // a slot fires a little before 8 h have passed since the last Short finished
+
 class DailyAutomation {
   constructor(agents, database, options = {}) {
     this.agents = agents;
@@ -21,6 +25,14 @@ class DailyAutomation {
     this.notify = options.notify || null;
     this.lastSkipReason = null;
     this.lastReadinessSelfHealAt = 0;
+    this.llmLane = Promise.resolve();
+  }
+
+  /** LLM-heavy jobs (a slot, a pool refill) run one after the other, never at the same time, so the per-minute limits are respected. */
+  inLlmLane(task) {
+    const run = this.llmLane.then(task, task);
+    this.llmLane = run.catch(() => {});
+    return run;
   }
 
   async initialize() {
@@ -38,10 +50,13 @@ class DailyAutomation {
   async setupScheduledTasks() {
     // Check the quality-gated Horror Shorts cadence every two hours.
     // The pacing gate (channel-identity target per day x 7, 21/week = 3/day), not cron frequency, decides whether a new Short is due.
+    // With Dark History live the check runs only at the slots; a failed slot is retried at the next one (the pacing gate stays).
+    const live = isLive();
+    const slotCron = String(process.env.DARK_HISTORY_SLOT_CRON || '').trim();
     this.scheduledTasks.set('cadence-content-generation',
-      cron.schedule('0 */2 * * *', async () => {
+      cron.schedule(live ? (cron.validate(slotCron) ? slotCron : DEFAULT_SLOT_CRON) : '0 */2 * * *', async () => {
         if (this.isEnabled) {
-          await this.runDailyContentGeneration();
+          await this.inLlmLane(() => this.runDailyContentGeneration());
         }
       }, { scheduled: false })
     );
@@ -132,7 +147,7 @@ class DailyAutomation {
     if (process.env.DARK_HISTORY_POOL_ENABLED === 'true' || isLive()) {
       this.scheduledTasks.set('story-pool-refill',
         cron.schedule('15 */3 * * *', async () => {
-          if (this.isEnabled) await this.refillStoryPool();
+          if (this.isEnabled) await this.inLlmLane(() => this.refillStoryPool());
         }, { scheduled: false })
       );
     }
@@ -277,7 +292,7 @@ class DailyAutomation {
       if (!lastGeneration) return true;
 
       const elapsedHours = (Date.now() - new Date(lastGeneration).getTime()) / 3600000;
-      const pacingHours = (7 * 24) / target;
+      const pacingHours = (7 * 24) / target - (isLive() ? SLOT_PACING_TOLERANCE_HOURS : 0);
       if (elapsedHours < pacingHours) {
         this.lastSkipReason = `pacing: next Short is due in ${(pacingHours - elapsedHours).toFixed(1)} h (one every ${pacingHours.toFixed(1)} h)`;
         return false;
