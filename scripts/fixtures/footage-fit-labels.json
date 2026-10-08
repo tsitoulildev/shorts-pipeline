@@ -1,0 +1,185 @@
+{
+ "note": "Hand-labelled by the head manager from contact sheets on 2026-10-08. fits=true: the picture shows a person, ship, place, document, object or event that the beat's source passage (first 450 characters) names or describes. Ambiguous pairs are left out. Pictures are Wikimedia Commons files of the pool stories; they are read from the story pool at calibration time and are not stored in the repository.",
+ "cases": [
+  {
+   "story": "Mary Celeste",
+   "image": "Mary Celeste as Amazon in 1861 (cropped).jpg",
+   "fits": true
+  },
+  {
+   "story": "Mary Celeste",
+   "image": "Lap desk of Captain Benjamin Briggs from the Mary Celeste (PEM M6557) 02.jpg",
+   "fits": false
+  },
+  {
+   "story": "Mary Celeste",
+   "image": "Lap desk of Captain Benjamin Briggs from the Mary Celeste (PEM M6557) 01.jpg",
+   "fits": false
+  },
+  {
+   "story": "Mary Celeste",
+   "image": "Sir James Cochrane 1841-1877.jpg",
+   "fits": true
+  },
+  {
+   "story": "Mary Celeste",
+   "image": "Trombe.jpg",
+   "fits": false
+  },
+  {
+   "story": "Hinterkaifeck murders",
+   "image": "Hinterkaifeck Flurkarte nach 1870.jpg",
+   "fits": true
+  },
+  {
+   "story": "Hinterkaifeck murders",
+   "image": "Stammbaum der Familie Gruber.jpg",
+   "fits": true
+  },
+  {
+   "story": "Hinterkaifeck murders",
+   "image": "Sterbebildchen der sechs Ermordeten.jpg",
+   "fits": false
+  },
+  {
+   "story": "Hinterkaifeck murders",
+   "image": "Aussage von Josef Brummer über Karl Gabriels Tod.jpg",
+   "fits": true
+  },
+  {
+   "story": "Roanoke Colony",
+   "image": "USA North Carolina relief location map.jpg",
+   "fits": false
+  },
+  {
+   "story": "Roanoke Colony",
+   "image": "Girolamo de Verrazzano's 1529 map of the East Coast of America.jpg",
+   "fits": true
+  },
+  {
+   "story": "Roanoke Colony",
+   "image": "Fort Raleigh (artist's reconstruction).jpg",
+   "fits": true
+  },
+  {
+   "story": "Roanoke Colony",
+   "image": "Baptism of Virginia Dare.jpeg",
+   "fits": false
+  },
+  {
+   "story": "Roanoke Colony",
+   "image": "Zúñiga Map by Ashe 1908.jpg",
+   "fits": false
+  },
+  {
+   "story": "Roanoke Colony",
+   "image": "Fort Raleigh Archaelogical Dig 2009.jpg",
+   "fits": true
+  },
+  {
+   "story": "Roanoke Colony",
+   "image": "Powhatan john smith map.jpg",
+   "fits": false
+  },
+  {
+   "story": "Great Molasses Flood",
+   "image": "BostonMolassesDisaster.jpg",
+   "fits": true
+  },
+  {
+   "story": "Great Molasses Flood",
+   "image": "GreatMolassesFlood 1919-Wreckage under the elevated tracks.jpg",
+   "fits": true
+  },
+  {
+   "story": "Great Molasses Flood",
+   "image": "Molasses Flood Historical Marker.jpg",
+   "fits": true
+  },
+  {
+   "story": "Pompeii",
+   "image": "Italy relief location map.jpg",
+   "fits": false
+  },
+  {
+   "story": "Pompeii",
+   "image": "Pompeii Forum.JPG",
+   "fits": false
+  },
+  {
+   "story": "Pompeii",
+   "image": "Aerial image of Pompeii and Mount Vesuvius (view from the southeast).jpg",
+   "fits": true
+  },
+  {
+   "story": "Pompeii",
+   "image": "Pittura di pompei con zuffa tra pompeiani e nocerini.jpg",
+   "fits": false
+  },
+  {
+   "story": "Pompeii",
+   "image": "Pompeya.Anfiteatro y palestra retouched.jpg",
+   "fits": true
+  },
+  {
+   "story": "Pompeii",
+   "image": "Pompeii, Italy, Pompeii stadium 2.jpg",
+   "fits": false
+  },
+  {
+   "story": "Pompeii",
+   "image": "Gladiator armor recovered from Herculaneum and the gladiator barracks in Pompeii painting by F Mattej, 1854.jpg",
+   "fits": false
+  },
+  {
+   "story": "Sinking of the Titanic",
+   "image": "Stöwer Titanic.jpg",
+   "fits": true
+  },
+  {
+   "story": "Sinking of the Titanic",
+   "image": "Amerika14April1912.JPG",
+   "fits": true
+  },
+  {
+   "story": "Sinking of the Titanic",
+   "image": "EJ Smith2.jpg",
+   "fits": true
+  },
+  {
+   "story": "Sinking of the Titanic",
+   "image": "Hearses lined up on Halifax wharf to carry RMS Titanic victims to funeral parlours, Halifax, Nova Scotia, Canada, 6 May, 1912.jpg",
+   "fits": false
+  },
+  {
+   "story": "SS Waratah",
+   "image": "SS Waratah FL601368.jpg",
+   "fits": true
+  },
+  {
+   "story": "SS Waratah",
+   "image": "SS Geelong FL1649017.jpg",
+   "fits": false
+  },
+  {
+   "story": "SS Waratah",
+   "image": "Joshua Edward Ilbery.jpg",
+   "fits": true
+  },
+  {
+   "story": "SS Waratah",
+   "image": "StateLibQld 1 198511 Waikato (ship).jpg",
+   "fits": false
+  },
+  {
+   "story": "SS Waratah",
+   "image": "StateLibQld 1 113748 Waratah (ship).jpg",
+   "fits": true
+  },
+  {
+   "story": "SS Waratah",
+   "image": "SS Waratah colour postcard.jpg",
+   "fits": true
+  }
+ ]
+}

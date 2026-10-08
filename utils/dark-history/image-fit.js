@@ -198,8 +198,13 @@ function makeVisionJudge(llm, { models = null, timeoutMs = FIT_TIMEOUT_MS, env =
         return text;
       } catch (error) {
         lastError = error;
-        const spent = Number(error?.response?.status) === 429 || /quota|429|RESOURCE_EXHAUSTED/i.test(String(error?.message || '') + JSON.stringify(error?.response?.data || ''));
-        if (!error.unusable) resting.set(entry.name, now() + (spent ? 30 : 2) * 60000);
+        // A per-minute rate limit (Mistral free: 30 requests a minute) rests a provider for a minute (or its Retry-After); a spent DAILY quota for 30 minutes.
+        const text = String(error?.message || '') + JSON.stringify(error?.response?.data || '');
+        const limited = Number(error?.response?.status) === 429 || /429|RESOURCE_EXHAUSTED|rate.?limit/i.test(text);
+        const daily = /per.?day|daily|quota/i.test(text) && !/rate.?limit|per.?(minute|second)/i.test(text);
+        const retryAfter = Number(error?.response?.headers?.['retry-after']);
+        const restMs = !limited ? 2 * 60000 : daily ? 30 * 60000 : Math.min(Math.max((Number.isFinite(retryAfter) ? retryAfter : 65) * 1000, 5000), 10 * 60000);
+        if (!error.unusable) resting.set(entry.name, now() + restMs);
       }
     }
     throw lastError || new Error('no vision model is available right now');
