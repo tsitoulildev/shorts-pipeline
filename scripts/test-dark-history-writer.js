@@ -241,6 +241,24 @@ const fitOk = { judge: async () => JSON.stringify({ mismatch: [] }), readImage: 
   geminiCalls = 0;
   await failover({ prompt: 'P', images: [], validate: validJson });
   assert.strictEqual(geminiCalls, 0);
+  // Rest times: a per-minute rate limit rests a provider about a minute (or its Retry-After), a spent daily quota half an hour. (Mistral free is 30
+  // requests a minute; resting 30 minutes after one burst made every later check of the day fail with "no vision model is available".)
+  const restCase = async (error, advanceMs) => {
+    let now = 10000; let calls = 0;
+    const one = fitMod.makeVisionJudge({}, { env: { MISTRAL_API_KEY: 'k' }, only: 'ministral', now: () => now, post: async () => { calls += 1; if (calls === 1) throw error; return { data: { choices: [{ message: { content: 'ok' } }] } }; } });
+    await assert.rejects(() => one({ prompt: 'P', images: [] }));
+    await assert.rejects(() => one({ prompt: 'P', images: [] }), /429|rate|quota|available/i);
+    assert.strictEqual(calls, 1, 'resting: no new request');
+    now += advanceMs;
+    try { await one({ prompt: 'P', images: [] }); } catch (_error) { /* still resting */ }
+    return calls;
+  };
+  const rate = Object.assign(new Error('Request failed with status code 429'), { response: { status: 429, data: { message: 'Rate limit exceeded' } } });
+  assert.strictEqual(await restCase(rate, 70 * 1000), 2, 'a rate limit is over after about a minute');
+  assert.strictEqual(await restCase(Object.assign(new Error('429'), { response: { status: 429, headers: { 'retry-after': '10' }, data: { message: 'rate limit' } } }), 12 * 1000), 2, 'Retry-After is honoured');
+  assert.strictEqual(await restCase(Object.assign(new Error('429'), { response: { status: 429, data: { message: 'You exceeded your current daily quota' } } }), 5 * 60 * 1000), 1, 'a daily quota is not retried after five minutes');
+  assert.strictEqual(await restCase(Object.assign(new Error('429'), { response: { status: 429, data: { message: 'You exceeded your current daily quota' } } }), 31 * 60 * 1000), 2, 'but after half an hour');
+
   // every provider failing is an error (the caller turns it into VISION_UNAVAILABLE); no keys, no judge; one provider can be chosen
   await assert.rejects(() => fitMod.makeVisionJudge({}, { env: { MISTRAL_API_KEY: 'k' }, post: async () => { throw new Error('503'); } })({ prompt: 'P', images: [] }), /503/);
   assert.strictEqual(fitMod.makeVisionJudge({}, { env: {} }), null);
