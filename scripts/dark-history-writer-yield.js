@@ -25,7 +25,7 @@ async function main() {
     const row = rows.find(r => r.title === title);
     if (!row) { console.log(`${title}: not in the pool snapshot`); continue; }
     const story = { article_url: row.article_url, plan: JSON.parse(row.plan), attribution: row.attribution };
-    let ok = 0; const attempts = []; let repaired = 0; const narrated = [];
+    let ok = 0; const reasons = []; const attempts = []; let repaired = 0; const narrated = [];
     for (let i = 0; i < runs; i += 1) {
       total += 1;
       try {
@@ -33,9 +33,10 @@ async function main() {
         ok += 1; passed += 1; attempts.push(script.metadata.creativeReview.attempts.length);
         if (script.metadata.creativeReview.repairedByDeletion) repaired += 1;
         narrated.push(script.beats.length);
-      } catch (error) { attempts.push('X'); }
+      } catch (error) { attempts.push('X'); reasons.push(String(error.message).replace(/s+/g, ' ').slice(0, 160)); }
     }
     console.log(`${title}: ${ok}/${runs} produced a script; attempts ${attempts.join(',')}; repaired by deletion in ${repaired} of them; narrated beats ${narrated.join(',') || '-'}`);
+    for (const reason of reasons) console.log(`    failed: ${reason}`);
   }
   console.log(`\nTOTAL ${passed}/${total} runs produced a script (${titles.length} stories, repair ${repair ? 'ON' : 'OFF'})`);
   process.exit(0);
