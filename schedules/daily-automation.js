@@ -51,15 +51,15 @@ class DailyAutomation {
     // Check the quality-gated Horror Shorts cadence every two hours.
     // The pacing gate (channel-identity target per day x 7, 21/week = 3/day), not cron frequency, decides whether a new Short is due.
     // With Dark History live the check runs only at the slots; a failed slot is retried at the next one (the pacing gate stays).
-    const live = isLive();
     const slotCron = String(process.env.DARK_HISTORY_SLOT_CRON || '').trim();
-    this.scheduledTasks.set('cadence-content-generation',
-      cron.schedule(live ? (cron.validate(slotCron) ? slotCron : DEFAULT_SLOT_CRON) : '0 */2 * * *', async () => {
-        if (this.isEnabled) {
-          await this.inLlmLane(() => this.runDailyContentGeneration());
-        }
-      }, { scheduled: false })
-    );
+    const generationTick = async () => {
+      if (this.isEnabled) {
+        await this.inLlmLane(() => this.runDailyContentGeneration());
+      }
+    };
+    this.scheduledTasks.set('cadence-content-generation', isLive()
+      ? cron.schedule(cron.validate(slotCron) ? slotCron : DEFAULT_SLOT_CRON, generationTick, { scheduled: false })
+      : cron.schedule('0 */2 * * *', generationTick, { scheduled: false }));
 
     // Publishing queue processing every 15 minutes
     this.scheduledTasks.set('publish-queue-processing',
