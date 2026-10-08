@@ -9,6 +9,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+delete process.env.MISTRAL_API_KEY; // the vision judge must be the Gemini stub below, never a real provider from .env
 process.env.APPROVAL_REQUIRED = 'false';
 process.env.AUTONOMOUS_MODE = 'true';
 process.env.YOUTUBE_UPLOAD_ENABLED = 'true';
