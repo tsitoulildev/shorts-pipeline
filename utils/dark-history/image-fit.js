@@ -73,7 +73,7 @@ async function checkImageFit({ script, story, judge, readImage = readImageForMod
   }
   let reply;
   try {
-    reply = await judge({ prompt: buildFitPrompt(entries), images });
+    reply = await judge({ prompt: buildFitPrompt(entries), images, validate: text => { try { return mismatchesOf(parseJsonResponse(text), entries.map(entry => entry.beat)) !== null; } catch (_error) { return false; } } });
   } catch (error) {
     throw fail('VISION_UNAVAILABLE', `the pictures could not be checked: ${String(error.message).slice(0, 160)}`);
   }
@@ -136,34 +136,74 @@ async function readImageForModel(file) {
   return { mimeType: 'image/jpeg', data: data.toString('base64') };
 }
 
+// Free vision models checked on the VM 2026-10-07 (ministral-14b: 3 of 3 rounds flagged exactly the three known mismatches on six pictures in one request). Gemini is first
+// (best quality, but its free daily quota runs out); the others are the failover. Keys come from the environment only.
+const EXTERNAL_VISION = [
+  // (NVIDIA's llama-3.2 vision models answer one picture per request, so they cannot take a whole Short in one request.)
+  // Mistral's free mode may log requests: the pictures are public Commons files and the sentences public facts.
+  { name: 'Mistral ministral-14b', baseURL: 'https://api.mistral.ai/v1', envKey: 'MISTRAL_API_KEY', model: 'ministral-14b-latest' },
+  { name: 'Mistral medium', baseURL: 'https://api.mistral.ai/v1', envKey: 'MISTRAL_API_KEY', model: 'mistral-medium-latest' }
+];
+
 /**
- * The vision judge on the free Gemini client of an AITextService. Tries the configured model, then the other free Gemini models,
- * never a text-only provider. No Gemini client means no judge (checkImageFit then fails closed).
+ * The vision judge: free Gemini models first, then the free OpenAI-compatible vision models whose keys are configured, never a
+ * text-only model. A provider that errors (a spent daily quota rests for 30 min, anything else for 2) or whose answer fails
+ * `validate` is skipped for the next one. No Gemini client and no key means no judge (checkImageFit then fails closed).
+ * Options: models (Gemini ids), only (a provider name, for calibration), env, post (injected in tests), now.
  */
-function makeVisionJudge(llm, { models = null, timeoutMs = FIT_TIMEOUT_MS } = {}) {
-  const client = llm?.gemini;
-  if (!client) return null;
-  const chain = models || [...new Set([llm.model, 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite'].filter(Boolean))];
-  return async ({ prompt, images }) => {
+function makeVisionJudge(llm, { models = null, timeoutMs = FIT_TIMEOUT_MS, env = process.env, post = null, now = Date.now, only = null } = {}) {
+  const wanted = only || env.VISION_ONLY || null;
+  const entries = [];
+  if (llm?.gemini) {
+    for (const model of models || [...new Set([llm.model, 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite'].filter(Boolean))]) entries.push({ kind: 'gemini', name: `Gemini ${model}`, model });
+  }
+  for (const external of EXTERNAL_VISION) if (env[external.envKey]) entries.push({ kind: 'openai', ...external, key: env[external.envKey] });
+  const chain = wanted ? entries.filter(entry => entry.name.toLowerCase().includes(String(wanted).toLowerCase())) : entries;
+  if (!chain.length) return null;
+  const resting = new Map();
+  const send = post || ((url, body, options) => require('axios').post(url, body, options));
+
+  const callGemini = async (entry, { prompt, images }) => {
+    let timer = null;
+    try {
+      const parts = [...images.map(image => ({ inlineData: { mimeType: image.mimeType, data: image.data } })), { text: prompt }];
+      const response = await Promise.race([
+        llm.gemini.models.generateContent({ model: entry.model, contents: [{ role: 'user', parts }], config: { maxOutputTokens: FIT_MAX_TOKENS, responseMimeType: 'application/json' } }),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`vision request timed out after ${timeoutMs} ms`)), timeoutMs); })
+      ]);
+      return typeof response?.text === 'string' ? response.text : '';
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+  const callOpenAi = async (entry, { prompt, images }) => {
+    const content = [...images.map(image => ({ type: 'image_url', image_url: { url: `data:${image.mimeType};base64,${image.data}` } })), { type: 'text', text: prompt }];
+    const response = await send(`${entry.baseURL}/chat/completions`, { model: entry.model, max_tokens: FIT_MAX_TOKENS, temperature: 0, messages: [{ role: 'user', content }] },
+      { headers: { Authorization: `Bearer ${entry.key}` }, timeout: timeoutMs });
+    const text = response?.data?.choices?.[0]?.message?.content;
+    return typeof text === 'string' ? text : '';
+  };
+
+  const judge = async request => {
     let lastError = null;
-    for (const model of chain) {
-      let timer = null;
+    for (const entry of chain) {
+      if ((resting.get(entry.name) || 0) > now()) continue;
       try {
-        const parts = [...images.map(image => ({ inlineData: { mimeType: image.mimeType, data: image.data } })), { text: prompt }];
-        const response = await Promise.race([
-          client.models.generateContent({ model, contents: [{ role: 'user', parts }], config: { maxOutputTokens: FIT_MAX_TOKENS, responseMimeType: 'application/json' } }),
-          new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`vision request timed out after ${timeoutMs} ms`)), timeoutMs); })
-        ]);
-        if (typeof response?.text === 'string' && response.text.trim()) return response.text;
-        lastError = new Error('empty vision response');
+        const text = entry.kind === 'gemini' ? await callGemini(entry, request) : await callOpenAi(entry, request);
+        if (!String(text).trim()) throw new Error('empty vision response');
+        if (request.validate && !request.validate(text)) throw Object.assign(new Error(`${entry.name} gave an unusable answer`), { unusable: true });
+        judge.lastProvider = entry.name;
+        return text;
       } catch (error) {
         lastError = error;
-      } finally {
-        if (timer) clearTimeout(timer);
+        const spent = Number(error?.response?.status) === 429 || /quota|429|RESOURCE_EXHAUSTED/i.test(String(error?.message || '') + JSON.stringify(error?.response?.data || ''));
+        if (!error.unusable) resting.set(entry.name, now() + (spent ? 30 : 2) * 60000);
       }
     }
-    throw lastError || new Error('no vision model answered');
+    throw lastError || new Error('no vision model is available right now');
   };
+  judge.providers = chain.map(entry => entry.name);
+  return judge;
 }
 
 module.exports = { describePictures, checkImageFit, buildFitPrompt, mismatchesOf, makeVisionJudge, readImageForModel, fitEntries };
