@@ -40,7 +40,7 @@ Return JSON only: {"beats":[{"beat":1,"shows":"...","subject":"...","fits":true}
  * The reply as a list of mismatches. Accepted shapes: { beats: [{ beat, fits }] } (every expected beat must be present, a missing or
  * non-true "fits" is a mismatch), { mismatch: [...] }, and either of them wrapped in an array. null when it is none of these (unusable).
  */
-function mismatchesOf(parsedReply, expectedBeats = null) {
+function mismatchesOf(parsedReply, expectedBeats = null, subjectWord = 'narration') {
   let parsed = parsedReply;
   const isObject = item => item && typeof item === 'object' && !Array.isArray(item);
   // a bare array of per-beat verdicts (seen from the real model) is the beats list
@@ -50,7 +50,7 @@ function mismatchesOf(parsedReply, expectedBeats = null) {
     const byBeat = new Map(answer.beats.filter(isObject).map(item => [Number(item.beat), item]));
     const wanted = expectedBeats || [...byBeat.keys()];
     if (!wanted.length) return null;
-    return wanted.filter(beat => byBeat.get(beat)?.fits !== true).map(beat => ({ beat, reason: byBeat.has(beat) ? `the picture shows ${String(byBeat.get(beat).shows || 'something else').slice(0, 80)}, the narration is about ${String(byBeat.get(beat).subject || 'something else').slice(0, 80)}` : 'the check gave no verdict for this beat' }));
+    return wanted.filter(beat => byBeat.get(beat)?.fits !== true).map(beat => ({ beat, reason: !byBeat.has(beat) ? 'the check gave no verdict for this beat' : byBeat.get(beat).reason ? String(byBeat.get(beat).reason).slice(0, 140) : `the picture shows ${String(byBeat.get(beat).shows || 'something else').slice(0, 80)}, the ${subjectWord} is about ${String(byBeat.get(beat).subject || 'something else').slice(0, 80)}` }));
   }
   return Array.isArray(answer?.mismatch) ? answer.mismatch : null;
 }

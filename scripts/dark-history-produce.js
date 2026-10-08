@@ -23,6 +23,8 @@ async function main() {
   const { produceDocumentaryShort } = require('../utils/dark-history/produce');
   const { makeNarrator } = require('../utils/dark-history/narration');
   const { pruneNearDuplicates } = require('../utils/dark-history/dhash');
+  const { ensureFootageFit } = require('../utils/dark-history/footage-fit');
+  const { makeVisionJudge } = require('../utils/dark-history/image-fit');
 
   const title = process.argv[2] || 'Mary Celeste';
   const llm = new AITextService({});
@@ -39,11 +41,15 @@ async function main() {
   distinct.dropped.forEach(item => console.log(`Dropped beat "${item.heading}": its picture repeats "${item.duplicateOf}"`));
   if (distinct.beats.length < 4) { console.log('Story not eligible: fewer than 4 distinct pictures'); return; }
   plan.beats = distinct.beats;
-  const story = {
+  let story = {
     article_url: plan.article.url, revision_id: plan.article.revisionId, attribution: attributionText(plan.article, plan.beats),
     plan: { title: plan.article.title, extract: plan.article.extract, folder, beats: plan.beats }
   };
 
+  // footage fit (same as the pool entrance): beats whose picture does not show what their passage describes fall
+  const fitted = await ensureFootageFit(story, { judge: makeVisionJudge(llm) });
+  console.log(`Footage fit: ${fitted.plan.beats.length} of ${story.plan.beats.length} beats keep a fitting picture${fitted.plan.fit.dropped.length ? ` (fall: ${fitted.plan.fit.dropped.map(d => d.heading).join(', ')})` : ''}`);
+  story = fitted;
   const script = await writeGroundedScript({ story, llm, logger: console });
   console.log(`Beats narrated: ${script.beats.length} of ${plan.beats.length} (skipped: ${plan.beats.filter((_, i) => !script.sourceBeatIndexes.includes(i)).map(b => b.heading).join(", ") || "none"})`);
   const video = new AIVideoGenerator({});

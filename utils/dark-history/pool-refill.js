@@ -8,8 +8,8 @@ const { fetchArticle } = require('./wikipedia');
 const { planFootage } = require('./footage');
 const { downloadImage } = require('./commons');
 const { vetArticle } = require('./event-vetting');
-const { attributionText } = require('./attribution');
 const { pruneNearDuplicates } = require('./dhash');
+const { ensureFootageFit } = require('./footage-fit');
 const { TARGET_DAYS } = require('./story-pool');
 
 // Most stories need no judge call at all (editor-placed images suffice); a story that does needs about 8-12.
@@ -29,7 +29,7 @@ async function nextCandidates(known, limit, http, categories = config.categories
   return out;
 }
 
-async function researchOne(title, { pool, http, judge, imageDir, now }) {
+async function researchOne(title, { pool, http, judge, imageDir, now, visionJudge = null, readImage }) {
   const article = await fetchArticle(title, http);
   const vet = vetArticle(article, now);
   if (!vet.ok) return pool.add({ title, status: 'rejected', articleUrl: article.url, reason: `vetting: ${vet.reason}` });
@@ -41,10 +41,19 @@ async function researchOne(title, { pool, http, judge, imageDir, now }) {
   const distinct = await pruneNearDuplicates(plan.beats, folder);
   if (distinct.beats.length < 4) return pool.add({ title, status: 'rejected', articleUrl: article.url, revisionId: article.revisionId, reason: `footage: only ${distinct.beats.length} distinct pictures after dropping near-duplicates` });
   plan.beats = distinct.beats;
+  // Footage fit: every kept beat has a picture that shows something its own passage describes (a vision model looks). A story with fewer than 4
+  // such beats is rejected with the reasons; an unavailable vision model throws VISION_UNAVAILABLE (a transient skip: not stored, not rejected).
+  let fitted;
+  try {
+    fitted = await ensureFootageFit({ article_url: article.url, plan: { title: article.title, extract: article.extract, license: article.license, folder, beats: plan.beats } }, { judge: visionJudge, readImage });
+  } catch (error) {
+    if (error.code === 'STORY_NOT_ELIGIBLE') return pool.add({ title, status: 'rejected', articleUrl: article.url, revisionId: article.revisionId, reason: `footage fit: ${error.message}`.slice(0, 500) });
+    throw error;
+  }
   return pool.add({
     title, status: 'ready', articleUrl: article.url, revisionId: article.revisionId, shareAlike: plan.shareAlike,
-    plan: { title: article.title, extract: article.extract, license: article.license, folder, beats: plan.beats },
-    attribution: attributionText(article, plan.beats), reason: vet.reason
+    plan: { title: article.title, extract: article.extract, license: article.license, folder, beats: fitted.plan.beats, fit: fitted.plan.fit },
+    attribution: fitted.attribution, reason: vet.reason
   });
 }
 
@@ -52,7 +61,7 @@ async function researchOne(title, { pool, http, judge, imageDir, now }) {
  * refillPool({ pool, judge, notify, perWeek, imageDir }) -> { researched, ready, days, allowedPerWeek, low }.
  * Researches up to maxAttempts candidates per run (free-quota friendly) and alerts when the pool is low.
  */
-async function refillPool({ pool, http = defaultHttp, judge, notify, perWeek, imageDir, maxAttempts = 3, candidates = null, dailyLlmCalls = Number(process.env.DARK_HISTORY_DAILY_LLM_CALLS) || DAILY_LLM_CALLS, now = new Date(), logger = console }) {
+async function refillPool({ pool, http = defaultHttp, judge, visionJudge = null, readImage, notify, perWeek, imageDir, maxAttempts = 3, candidates = null, dailyLlmCalls = Number(process.env.DARK_HISTORY_DAILY_LLM_CALLS) || DAILY_LLM_CALLS, now = new Date(), logger = console }) {
   let researched = 0;
   let budgetExhausted = false;
   // free-tier budget: research stops for the day once this many judge calls were spent (the count survives restarts)
@@ -64,7 +73,7 @@ async function refillPool({ pool, http = defaultHttp, judge, notify, perWeek, im
       if (spent >= dailyLlmCalls) { budgetExhausted = true; logger.warn?.(`story pool: daily LLM budget (${dailyLlmCalls} calls) spent, research resumes tomorrow`); break; }
       researched += 1;
       try {
-        await researchOne(title, { pool, http, judge: countingJudge, imageDir, now });
+        await researchOne(title, { pool, http, judge: countingJudge, imageDir, now, visionJudge, readImage });
       } catch (error) {
         // a transient failure (network, rate limit) must not mark the event as rejected for good
         logger.warn?.(`story pool: "${title}" skipped this run: ${error.message}`);
