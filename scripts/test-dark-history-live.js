@@ -23,6 +23,7 @@ const { ProvenanceService } = require('../utils/provenance-service');
 const { DailyAutomation } = require('../schedules/daily-automation');
 const { ProductionReadinessService } = require('../utils/production-readiness-service');
 const { runFFmpeg, checkFFmpeg } = require('../utils/ffmpeg');
+const { softPhoto, rescaledCopy } = require('./lib/stand-in-photos');
 const { StoryPool } = require('../utils/dark-history/story-pool');
 const { isLive, isDocumentary, buildProductionData } = require('../utils/dark-history/live');
 const { attributionText } = require('../utils/dark-history/attribution');
@@ -45,8 +46,8 @@ async function makeStory(dir, title = 'Mary Celeste', { duplicates = 0, base = 4
   const beats = [];
   for (let i = 0; i < dims.length; i += 1) {
     const raw = path.join(folder, `raw${i}.png`);
-    if (i < base) await runFFmpeg(['-y', '-f', 'lavfi', '-i', `nullsrc=s=${dims[i][0]}x${dims[i][1]},geq=lum=random(${i * 13 + 1})*255:cb=128:cr=128,format=rgb24`, '-frames:v', '1', '-update', '1', raw]); // uncorrelated noise: far apart for the fingerprint
-    else await runFFmpeg(['-y', '-i', path.join(folder, 'first.png'), '-vf', `scale=${dims[i][0]}:${dims[i][1]}`, '-frames:v', '1', '-update', '1', raw]); // the first picture again at another size
+    if (i < base) await softPhoto(raw, dims[i][0], dims[i][1], i * 13 + 1);
+    else await rescaledCopy(path.join(folder, 'first.png'), raw, dims[i][0], dims[i][1]); // the first picture again at another size
     if (i === 0) fs.copyFileSync(raw, path.join(folder, 'first.png'));
     const sha256 = crypto.createHash('sha256').update(fs.readFileSync(raw)).digest('hex');
     const file = `${sha256.slice(0, 16)}.png`;

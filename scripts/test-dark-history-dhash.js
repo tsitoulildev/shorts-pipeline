@@ -3,18 +3,17 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { runFFmpeg, checkFFmpeg } = require('../utils/ffmpeg');
+const { checkFFmpeg } = require('../utils/ffmpeg');
+const { softPhoto, rescaledCopy } = require('./lib/stand-in-photos');
 const { dhash, distance, pruneNearDuplicates } = require('../utils/dark-history/dhash');
 
 (async () => {
   assert.ok(await checkFFmpeg());
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dhash-'));
-  const make = async (name, source, size) => { await runFFmpeg(['-y', '-f', 'lavfi', '-i', `${source}=s=${size},format=rgb24`, '-frames:v', '1', '-update', '1', path.join(dir, name)]); return name; };
-  // the same scene at two sizes and recompressed (what two photographs of one desk look like to the hash) vs different scenes
-  const a = await make('a.png', 'testsrc2', '1600x1067');
-  const a2 = await make('a2.jpg', 'testsrc2', '1200x800');
-  const b = await make('b.png', 'smptebars', '1500x1000');
-  const c = await make('c.png', 'mandelbrot', '1280x960');
+  const a = path.basename(await softPhoto(path.join(dir, 'a.png'), 1600, 1067, 1));
+  const a2 = path.basename(await rescaledCopy(path.join(dir, 'a.png'), path.join(dir, 'a2.png'), 1200, 800));
+  const b = path.basename(await softPhoto(path.join(dir, 'b.png'), 1500, 1000, 14));
+  const c = path.basename(await softPhoto(path.join(dir, 'c.png'), 1280, 960, 27));
   const [ha, ha2, hb, hc] = await Promise.all([a, a2, b, c].map(name => dhash(path.join(dir, name))));
   assert.match(ha, /^[0-9a-f]{16}$/);
   assert.ok(distance(ha, ha2) <= 12, `same scene is a near-duplicate (${distance(ha, ha2)} bits)`);
