@@ -28,6 +28,7 @@ async function main() {
     let ok = 0; const reasons = []; const attempts = []; let repaired = 0; const narrated = [];
     for (let i = 0; i < runs; i += 1) {
       total += 1;
+      await new Promise(resolve => setTimeout(resolve, Number(process.env.PAUSE_MS || 0))); // free providers cool down for minutes after a burst
       try {
         const script = await writeGroundedScript({ story, llm, imageFit: fit, repair });
         ok += 1; passed += 1; attempts.push(script.metadata.creativeReview.attempts.length);
