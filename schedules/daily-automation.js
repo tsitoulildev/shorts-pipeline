@@ -487,13 +487,14 @@ class DailyAutomation {
       const { StoryPool } = require('../utils/dark-history/story-pool');
       const { refillPool } = require('../utils/dark-history/pool-refill');
       const { makeLlmJudge } = require('../utils/dark-history/relevance-judge');
+      const { makeVisionJudge } = require('../utils/dark-history/image-fit');
       const path = require('path');
       const strategy = (this.db.getChannelStrategy ? await this.db.getChannelStrategy() : null) || {};
       const perWeek = Math.max(1, Math.min(35, Number(strategy.cadence_per_week || ((channelIdentity.publishingCadence?.shortsPerDay?.target || 3) * 7))));
       this.storyPool = this.storyPool || new StoryPool(this.db);
       const llm = this.agents.strategy?.aiTextService;
       const result = await refillPool({
-        pool: this.storyPool, judge: llm ? makeLlmJudge(llm) : null, notify: this.notify, perWeek,
+        pool: this.storyPool, judge: llm ? makeLlmJudge(llm) : null, visionJudge: llm ? makeVisionJudge(llm) : null, notify: this.notify, perWeek,
         imageDir: path.join(__dirname, '..', 'data', 'story-pool'), logger: this.logger
       });
       this.logger.info(`Story pool: ${result.ready} ready (${result.days.toFixed(1)} days), researched ${result.researched}`);

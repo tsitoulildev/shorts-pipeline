@@ -10,6 +10,7 @@ const { vetArticle } = require('../utils/dark-history/event-vetting');
 const { refillPool } = require('../utils/dark-history/pool-refill');
 const config = require('../config/dark-history-events.json');
 
+const allFit = async () => JSON.stringify({ mismatch: [] }); // a vision model that finds every picture fitting its passage
 const article = (extract, categories = []) => ({ extract, categories });
 
 (async () => {
@@ -53,7 +54,7 @@ const article = (extract, categories = []) => ({ extract, categories });
     return fixtureHttp.getJson(url, params);
   } };
   const flaky = { ...living, getJson: async (url, params) => { if (params?.titles === 'Flaky') throw new Error('socket hang up'); return living.getJson(url, params); } };
-  const result = await refillPool({ pool, http: flaky, notify, perWeek: 28, imageDir: path.join(dir, 'img'), candidates: ['Mary Celeste', 'Living Person', 'Flaky', 'Tunguska event'], logger: { warn() {} } });
+  const result = await refillPool({ pool, http: flaky, notify, visionJudge: allFit, perWeek: 28, imageDir: path.join(dir, 'img'), candidates: ['Mary Celeste', 'Living Person', 'Flaky', 'Tunguska event'], logger: { warn() {} } });
   assert.strictEqual(result.researched, 4);
   assert.strictEqual(result.ready, 2, 'Mary Celeste and Tunguska enter the pool');
   const known = await pool.knownTitles();
@@ -71,11 +72,11 @@ const article = (extract, categories = []) => ({ extract, categories });
 
   // Daily free-tier budget: with no calls left nothing is researched, and the spend is stored per day.
   const calls = [];
-  const limited = await refillPool({ pool, http: fixtureHttp, notify, perWeek: 28, imageDir: dir, candidates: ['Mary Celeste'], dailyLlmCalls: 0, judge: async () => { calls.push(1); return []; }, logger: { warn() {} } });
+  const limited = await refillPool({ pool, http: fixtureHttp, notify, visionJudge: allFit, perWeek: 28, imageDir: dir, candidates: ['Mary Celeste'], dailyLlmCalls: 0, judge: async () => { calls.push(1); return []; }, logger: { warn() {} } });
   assert.strictEqual(limited.researched, 0);
   assert.strictEqual(limited.budgetExhausted, true);
   await db.setSetting('dh_llm_calls:2026-10-06', '149');
-  const spend = await refillPool({ pool, http: fixtureHttp, notify, perWeek: 28, imageDir: dir, candidates: ['Nothing Known'], dailyLlmCalls: 150, now: new Date('2026-10-06T12:00:00Z'), logger: { warn() {} } });
+  const spend = await refillPool({ pool, http: fixtureHttp, notify, visionJudge: allFit, perWeek: 28, imageDir: dir, candidates: ['Nothing Known'], dailyLlmCalls: 150, now: new Date('2026-10-06T12:00:00Z'), logger: { warn() {} } });
   assert.strictEqual(spend.llmCallsToday, 149);
   assert.strictEqual(spend.researched, 1);
 
@@ -92,16 +93,38 @@ const article = (extract, categories = []) => ({ extract, categories });
 
   // An empty pool alerts at error level.
   alerts.length = 0;
-  await refillPool({ pool, http: fixtureHttp, notify, perWeek: 28, imageDir: dir, candidates: [], logger: { warn() {} } });
+  await refillPool({ pool, http: fixtureHttp, notify, visionJudge: allFit, perWeek: 28, imageDir: dir, candidates: [], logger: { warn() {} } });
   assert.strictEqual(alerts[0].level, 'error');
 
   // Near-duplicate pictures: when every downloaded picture is the same file, the repeating beats fall and the story is rejected, not stored
   const sameBytes = await fixtureHttp.getBuffer('https://upload.wikimedia.org/same.png');
   const twinsHttp = { ...fixtureHttp, getBuffer: async () => sameBytes };
   const before = await pool.readyCount();
-  const twinsResult = await refillPool({ pool, http: twinsHttp, notify, perWeek: 28, imageDir: path.join(dir, 'twins'), candidates: ['Mary Celeste'], logger: { warn() {} } });
+  const twinsResult = await refillPool({ pool, http: twinsHttp, notify, visionJudge: allFit, perWeek: 28, imageDir: path.join(dir, 'twins'), candidates: ['Mary Celeste'], logger: { warn() {} } });
   assert.strictEqual(twinsResult.ready, before, 'a story whose pictures are all the same file does not enter the pool');
   assert.match((await db.getRow("SELECT reason FROM story_pool WHERE title = 'Mary Celeste'")).reason, /distinct pictures after dropping near-duplicates/);
+
+  // Footage fit at the entrance: a story whose pictures do not show what their passages describe is rejected with the reason; an unavailable
+  // vision model skips the story for this run (not stored, not rejected); a stored story carries its verdict.
+  await db.executeQuery("DELETE FROM story_pool WHERE title IN ('Mary Celeste', 'Tunguska event')");
+  const noneFit = async ({ images }) => JSON.stringify({ beats: images.map((_, i) => ({ beat: i + 1, shows: 'a map', subject: 'none', fits: false, reason: 'a map of another region' })) });
+  await refillPool({ pool, http: fixtureHttp, notify, visionJudge: noneFit, perWeek: 28, imageDir: path.join(dir, 'fit-a'), candidates: ['Tunguska event'], logger: { warn() {} } });
+  const turnedAway = await db.getRow("SELECT status, reason FROM story_pool WHERE title = 'Tunguska event'");
+  assert.strictEqual(turnedAway.status, 'rejected');
+  assert.match(turnedAway.reason, /^footage fit: only 0 beats have a picture that shows what its passage describes/);
+  assert.match(turnedAway.reason, /a map of another region/);
+  const warnings = [];
+  await refillPool({ pool, http: fixtureHttp, notify, visionJudge: async () => { throw new Error('429 quota'); }, perWeek: 28, imageDir: path.join(dir, 'fit-b'), candidates: ['Mary Celeste'], logger: { warn: message => warnings.push(message) } });
+  assert.strictEqual(await db.getRow("SELECT status FROM story_pool WHERE title = 'Mary Celeste'"), undefined, 'an unavailable vision model stores nothing and rejects nothing');
+  assert.ok(warnings.some(message => /Mary Celeste.*skipped this run.*could not be checked/.test(message)));
+  await refillPool({ pool, http: fixtureHttp, notify, visionJudge: null, perWeek: 28, imageDir: path.join(dir, 'fit-c'), candidates: ['Mary Celeste'], logger: { warn() {} } });
+  assert.strictEqual(await db.getRow("SELECT status FROM story_pool WHERE title = 'Mary Celeste'"), undefined, 'no vision model at all is not a pass');
+  const someFit = async ({ images }) => JSON.stringify({ beats: images.map((_, i) => ({ beat: i + 1, shows: 'x', subject: 'y', fits: i !== 1 })) });
+  await refillPool({ pool, http: fixtureHttp, notify, visionJudge: someFit, perWeek: 28, imageDir: path.join(dir, 'fit-d'), candidates: ['Mary Celeste'], logger: { warn() {} } });
+  const stored = await pool.claimNext();
+  assert.ok(stored.plan.fit.checkedAt && stored.plan.fit.dropped.length === 1, 'the verdict is stored with the story');
+  assert.ok(!stored.attribution.includes(stored.plan.fit.dropped[0].heading) || stored.plan.beats.every(beat => beat.heading !== stored.plan.fit.dropped[0].heading));
+  assert.ok(stored.plan.beats.length >= 4);
 
   await db.close?.();
   fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

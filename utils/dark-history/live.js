@@ -9,6 +9,8 @@ const { produceDocumentaryShort } = require('./produce');
 const { makeNarrator, narrationCommand } = require('./narration');
 const { allowedCadencePerWeek } = require('./story-pool');
 const { pruneNearDuplicates } = require('./dhash');
+const { ensureFootageFit } = require('./footage-fit');
+const { makeVisionJudge } = require('./image-fit');
 const { attributionText } = require('./attribution');
 
 const OUTPUT_DIR = path.join(__dirname, '..', '..', 'data', 'dark-history-output');
@@ -109,9 +111,9 @@ async function releaseAfterFailure(pool, storyId, title, error, { cancelled = fa
  * back to the pool (or is rejected after 3 failed attempts) and the error carries storyTitle/attempts for the alert.
  * Checks that depend on no story (the voice) run BEFORE a story is claimed, so a configuration problem never burns stories.
  */
-async function produceFromPool({ pool, llm, generator, workRoot = OUTPUT_DIR, env = process.env, signal = null, onStage = async () => {}, logger = console }) {
+async function produceFromPool({ pool, llm, generator, imageFit = null, workRoot = OUTPUT_DIR, env = process.env, signal = null, onStage = async () => {}, logger = console }) {
   const voice = (narrationCommand(env).match(/-m (\S+)/g) || []).pop().slice(3);
-  const story = await pool.claimNext();
+  let story = await pool.claimNext();
   if (!story) throw failure('STORY_POOL_EMPTY', 'the Dark History story pool is empty');
   const outDir = path.join(workRoot, `${story.plan.title.replace(/[^a-z0-9]+/gi, '_')}_${Date.now()}`);
   try {
@@ -128,8 +130,10 @@ async function produceFromPool({ pool, llm, generator, workRoot = OUTPUT_DIR, en
     } else {
       story.plan.beats = distinct.beats;
     }
+    // A story made before the footage check existed carries no verdict: it is checked now (one vision request), and a story that carries one is not.
+    story = await ensureFootageFit(story, imageFit || { judge: makeVisionJudge(llm) });
     await onStage('script', 25);
-    const script = await writeGroundedScript({ story, llm, logger });
+    const script = await writeGroundedScript({ story, llm, logger, imageFit });
     await onStage('production', 55);
     const result = await produceDocumentaryShort({ story, script, workDir: outDir, signal, narrate: makeNarrator({ generator, env }) });
     if (!result.gate.passed) {

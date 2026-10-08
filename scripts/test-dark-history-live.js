@@ -72,7 +72,14 @@ function makeLlm(mode = { writer: 'ok' }) {
     calls: 0,
     model: 'gemini-test',
     // the vision model: looks at the real stand-in pictures (sent as inline data) and finds every one fitting, unless the mode says otherwise
-    gemini: mode.vision === 'none' ? null : { models: { generateContent: async request => { llm.visionCalls = (llm.visionCalls || 0) + 1; llm.lastVision = request; return { text: JSON.stringify({ mismatch: mode.vision === 'mismatch' ? [{ beat: 2, reason: 'wrong picture' }] : [] }) }; } } },
+    gemini: mode.vision === 'none' ? null : { models: { generateContent: async request => {
+      // the footage check (passages) finds every picture fitting; the narration check (narrations) is the one a mode can fail
+      const asksAboutPassages = /PASSAGE 1:/.test(request.contents[0].parts[request.contents[0].parts.length - 1].text);
+      if (!asksAboutPassages) { llm.visionCalls = (llm.visionCalls || 0) + 1; llm.lastVision = request; }
+      llm.footageChecks = (llm.footageChecks || 0) + (asksAboutPassages ? 1 : 0);
+      const wrong = (!asksAboutPassages && mode.vision === 'mismatch') || (asksAboutPassages && mode.vision === 'footage');
+      return { text: JSON.stringify({ mismatch: wrong ? [{ beat: 2, reason: 'wrong picture' }] : [] }) };
+    } } },
     async generateText(prompt) {
       llm.calls += 1;
       if (/strict fact-checker/.test(prompt)) return JSON.stringify({ unsupported: [] });
@@ -324,6 +331,33 @@ function makeLlm(mode = { writer: 'ok' }) {
     assert.match(twinDone.error, /only 3 distinct pictures remain/);
     assert.strictEqual((await db.getRow("SELECT status FROM story_pool WHERE title = 'Twin Story'")).status, 'rejected', 'a story that can never be made is rejected at once');
     assert.ok(notices.some(n => n.type === 'documentary_failure' && n.title.includes('rejected')));
+
+    // footage fit at production: a story made before the check existed is checked when it is claimed (one vision request); a picture that does not
+    // show what its passage describes drops its beat, and fewer than 4 beats left rejects the story at once
+    notices.length = 0;
+    await addToPool(pool, await makeStory(dir, 'Passage Story'));
+    const footageLlm = makeLlm({ vision: 'footage' });
+    const footageAgent = makeAgent({ llm: footageLlm });
+    const footageJob = await footageAgent.queueScheduledContent({ source: 'scheduler' });
+    const footageDone = await footageAgent.waitForGenerationJob(footageJob.id);
+    assert.strictEqual(footageDone.status, 'failed');
+    assert.match(footageDone.error, /only 3 beats have a picture that shows what its passage describes/);
+    assert.strictEqual(footageLlm.footageChecks, 1, 'checked once, when claimed');
+    assert.strictEqual((await db.getRow("SELECT status FROM story_pool WHERE title = 'Passage Story'")).status, 'rejected', 'a story that cannot be made is rejected at once');
+    assert.strictEqual(footageAgent.scheduled.length, 0);
+    assert.ok(notices.some(n => n.type === 'documentary_failure' && /3 beats have a picture/.test(n.message)));
+    // a story that already carries its verdict (checked at the pool entrance) is not checked again, and its beats are produced as stored
+    notices.length = 0;
+    const carried = await makeStory(dir, 'Carried Story');
+    const carriedId = await addToPool(pool, carried);
+    const carriedPlan = JSON.parse((await db.getRow('SELECT plan FROM story_pool WHERE id = ?', [carriedId])).plan);
+    carriedPlan.fit = { checkedAt: new Date().toISOString(), pictures: 4, dropped: [] };
+    await db.executeQuery('UPDATE story_pool SET plan = ? WHERE id = ?', [JSON.stringify(carriedPlan), carriedId]);
+    const carriedLlm = makeLlm();
+    const carriedAgent = makeAgent({ llm: carriedLlm });
+    const carriedJob = await carriedAgent.queueScheduledContent({ source: 'scheduler' });
+    assert.strictEqual((await carriedAgent.waitForGenerationJob(carriedJob.id)).status, 'completed');
+    assert.ok(!carriedLlm.footageChecks, 'a story with a verdict costs no footage request');
 
     // pictures that do not fit their narration: no Short (the writer cannot fix it here), the owner is told; the pictures were really sent
     notices.length = 0;
