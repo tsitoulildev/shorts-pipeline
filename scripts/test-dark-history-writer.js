@@ -87,7 +87,7 @@ const fitOk = { judge: async () => JSON.stringify({ mismatch: [] }), readImage: 
     prompts.push(prompt);
     return /strict fact-checker/.test(prompt) ? JSON.stringify(clean) : replies.shift();
   } };
-  const script = await writeGroundedScript({ story, imageFit: fitOk, llm, maxRevisions: 2 });
+  const script = await writeGroundedScript({ story, imageFit: fitOk, llm, maxRevisions: 2, repair: false });
   assert.strictEqual(script.beats.length, story.plan.beats.length);
   assert.ok(prompts.some(p => /FACT-CHECK NOTES/.test(p) && /amount "Forty"/.test(p)), 'the rewrite prompt carries the fact-check issue');
   assert.ok(script.metadata.creativeReview.attempts.length >= 2);
@@ -188,10 +188,10 @@ const fitOk = { judge: async () => JSON.stringify({ mismatch: [] }), readImage: 
   // pictures are only looked at when the facts hold (free-tier vision quota)
   let looks = 0;
   const lookCounter = { readImage: fitOk.readImage, judge: async ({ prompt }) => { if (!/say in one short sentence/.test(prompt)) looks += 1; return JSON.stringify({ pictures: [], mismatch: [] }); } };
-  const factsFail = await require('../utils/dark-history/grounded-writer').reviewGrounded(draft(mutate(1, { narration: `${faithful[1].narration} Forty-two sailors vanished.` })), story, async () => JSON.stringify(clean), lookCounter);
+  const factsFail = await require('../utils/dark-history/grounded-writer').reviewGrounded(draft(mutate(1, { narration: `${faithful[1].narration} Forty-two sailors vanished.` })), story, async () => JSON.stringify(clean), lookCounter, { repair: false });
   assert.strictEqual(looks, 0, 'a draft with a fact problem costs no vision request');
   assert.ok(!factsFail.failures.includes('a picture does not fit its narration'));
-  await require('../utils/dark-history/grounded-writer').reviewGrounded(draft(faithful), story, async () => JSON.stringify(clean), lookCounter);
+  await require('../utils/dark-history/grounded-writer').reviewGrounded(draft(faithful), story, async () => JSON.stringify(clean), lookCounter, { repair: false });
   assert.strictEqual(looks, 1);
   assert.match(buildPrompt(story, null, null, ['A brigantine under sail']), /BEAT 1 [^\n]*the picture shows: A brigantine under sail/);
   assert.ok(/narration must be about what its picture shows/.test(buildPrompt(story, null)));
@@ -246,6 +246,43 @@ const fitOk = { judge: async () => JSON.stringify({ mismatch: [] }), readImage: 
   assert.strictEqual(fitMod.makeVisionJudge({}, { env: {} }), null);
   assert.deepStrictEqual(fitMod.makeVisionJudge({ gemini: geminiOk, model: 'g' }, { env: { MISTRAL_API_KEY: 'k' }, only: 'medium' }).providers, ['Mistral medium']);
 
+  // Repair by deletion (writer yield): what the checks refuse is deleted, not rewritten (a rewrite can add new inventions, deleting cannot), and the
+  // repaired script is verified again from scratch. Nothing is added, no check is relaxed.
+  const { repairByDeletion } = require('../utils/dark-history/grounded-writer');
+  const twoSentences = beatIndex => ({ ...faithful[beatIndex], narration: `${faithful[beatIndex].narration} The crew had been terrified of the sea for months.`, evidence: faithful[beatIndex].evidence });
+  const withExtra = faithful.map((b, i) => (i === 1 ? twoSentences(1) : b));
+  // the verifier flags the invented sentence (beat 2, sentence 2): it is deleted, no rewrite is asked for, the verifier saw the repaired script
+  const verifierCalls = [];
+  const flagging2 = async prompt => { verifierCalls.push(prompt); return JSON.stringify(/terrified/.test(prompt) ? { unsupported: [{ id: '2.2', reason: 'adds a feeling' }] } : { unsupported: [] }); };
+  const writerCalls = [];
+  const repairLlm = { generateText: async prompt => { if (/strict fact-checker/.test(prompt)) return flagging2(prompt); writerCalls.push(prompt); return JSON.stringify(draft(withExtra)); } };
+  const repairedScript = await writeGroundedScript({ story, imageFit: fitOk, llm: repairLlm, maxRevisions: 2 });
+  assert.strictEqual(writerCalls.length, 1, 'the draft was repaired, not rewritten');
+  assert.strictEqual(verifierCalls.length, 2, 'the repaired script was verified again');
+  assert.ok(!/terrified/.test(verifierCalls[1]), 'the second verification saw the script without the invented sentence');
+  assert.ok(!repairedScript.fullScript.includes('terrified') && repairedScript.beats[1].narration === faithful[1].narration);
+  assert.deepStrictEqual(repairedScript.metadata.creativeReview.repairedByDeletion, { removedSentences: 1, skippedBeats: 0 });
+  // a number that is not in the evidence deletes that sentence; evidence that is not in the source skips the beat (its picture falls)
+  const badNumber = faithful.map((b, i) => (i === 2 ? { ...b, narration: `${b.narration} It happened in 1999.` } : b));
+  const fixedNumber = repairByDeletion({ beats: badNumber, fullScript: '', hook: '' }, story, { unsupported: [] });
+  assert.strictEqual(fixedNumber.beats[2].narration, faithful[2].narration);
+  const noEvidence = faithful.map((b, i) => (i === 3 ? { ...b, evidence: ['Not a sentence of the source at all today.'] } : b));
+  const skippedBeat = repairByDeletion({ beats: noEvidence, fullScript: '', hook: '' }, story, { unsupported: [] });
+  assert.strictEqual(skippedBeat.beats[3].skip, true);
+  assert.strictEqual(skippedBeat.sourceBeatIndexes, undefined);
+  // too thin after the deletion: the beat is skipped; fewer than 4 narrated beats left: no repair (null), the loop rewrites
+  const thin = faithful.map((b, i) => (i === 1 ? { ...b, narration: 'Too short here.', evidence: b.evidence } : b));
+  assert.strictEqual(repairByDeletion({ beats: thin, fullScript: '', hook: '' }, story, { unsupported: [] }).beats[1].skip, true);
+  const mostlyBad = faithful.map((b, i) => (i < faithful.length - 3 ? { ...b, evidence: ['Not a sentence of the source at all today.'] } : b));
+  assert.strictEqual(repairByDeletion({ beats: mostlyBad, fullScript: '', hook: '' }, story, { unsupported: [] }), null);
+  // the repair never rescues what is still wrong: the verifier flags the same beat again after the deletion -> not passed (and it can be turned off)
+  const stubborn = async () => JSON.stringify({ unsupported: [{ id: '1.1', reason: 'still unsupported' }] });
+  const stillBad = await require('../utils/dark-history/grounded-writer').reviewGrounded(draft(withExtra), story, stubborn, fitOk);
+  assert.strictEqual(stillBad.passed, false);
+  assert.ok(!stillBad.repairedByDeletion);
+  const noRepair = await require('../utils/dark-history/grounded-writer').reviewGrounded(draft(withExtra), story, flagging2, fitOk, { repair: false });
+  assert.strictEqual(noRepair.passed, false);
+
   // Seen on the VM: every rewrite fixed the flagged beat and broke another one, so three attempts never converged.
   // A rewrite now gets the previous draft and may change ONLY the beats the notes name; the others are restored as they were.
   const broken = mutate(1, { narration: `${faithful[1].narration} Forty-two sailors vanished.` });
@@ -257,7 +294,7 @@ const fitOk = { judge: async () => JSON.stringify({ mismatch: [] }), readImage: 
     rewritePrompts.push(prompt);
     return seq.shift();
   } };
-  const converged = await writeGroundedScript({ story, imageFit: fitOk, llm: converge, maxRevisions: 1 });
+  const converged = await writeGroundedScript({ story, imageFit: fitOk, llm: converge, maxRevisions: 1, repair: false });
   assert.strictEqual(converged.beats[2].narration, faithful[2].narration, 'a beat the notes did not name is restored from the previous draft');
   assert.strictEqual(converged.beats[1].narration, faithful[1].narration, 'the flagged beat was rewritten');
   assert.ok(/PREVIOUS DRAFT/.test(rewritePrompts[1]) && rewritePrompts[1].includes(broken[1].narration), 'the rewrite prompt carries the previous draft');
@@ -274,7 +311,7 @@ const fitOk = { judge: async () => JSON.stringify({ mismatch: [] }), readImage: 
 
   // No draft passes: the job is rejected (fail closed), nothing is published from an unverified script.
   const liar = { generateText: async prompt => (/strict fact-checker/.test(prompt) ? JSON.stringify(clean) : JSON.stringify(draft(bad))) };
-  await assert.rejects(() => writeGroundedScript({ story, imageFit: fitOk, llm: liar, maxRevisions: 1 }), error => error.code === 'CREATIVE_REVIEW_REJECTED' && /fact-check/.test(error.message));
+  await assert.rejects(() => writeGroundedScript({ story, imageFit: fitOk, llm: liar, maxRevisions: 1, repair: false }), error => error.code === 'CREATIVE_REVIEW_REJECTED' && /fact-check/.test(error.message));
 
   // The VM sample report separates thrown errors, invalid/cut answers and provider truncation, per provider and model.
   const { instrument, toMarkdown } = require('./dark-history-judge-sample');
