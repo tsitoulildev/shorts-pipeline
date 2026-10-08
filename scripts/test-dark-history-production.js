@@ -5,6 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { runFFmpeg, checkFFmpeg } = require('../utils/ffmpeg');
+const { softPhoto } = require('./lib/stand-in-photos');
 const { kenBurnsFilter, beatTimeline } = require('../utils/dark-history/documentary-render');
 const { produceDocumentaryShort, buildSeo } = require('../utils/dark-history/produce');
 const { checkDocumentaryProduction } = require('../utils/dark-history/documentary-gate');
@@ -18,10 +19,9 @@ const SENTENCES = [
   'Nobody who had been on board was ever seen again.'
 ];
 
-// Four different stand-in photos. Seeded noise: the same pattern at another size, or flat test patterns (smptebars, gradients: random per run),
-// are near-duplicates for the fingerprint gate (CI failed on exactly that with 'gradients' vs 'smptebars').
+// Four different stand-in photos (deterministic, see scripts/lib/stand-in-photos.js).
 async function makeImage(file, width, height, index = 0) {
-  await runFFmpeg(['-y', '-f', 'lavfi', '-i', `nullsrc=s=${width}x${height},geq=lum=random(${index * 13 + 1})*255:cb=128:cr=128,format=rgb24`, '-frames:v', '1', '-update', '1', file]);
+  await softPhoto(file, width, height, index * 13 + 1);
 }
 
 (async () => {
