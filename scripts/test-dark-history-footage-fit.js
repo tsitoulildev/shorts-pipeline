@@ -37,6 +37,8 @@ const verdicts = fitting => async ({ images, prompt, validate }) => {
   // the prompt carries each passage with its picture
   const story7 = await makeStory(7);
   assert.ok(buildFootagePrompt(story7.plan.beats.map((b, i) => ({ index: i + 1, passage: b.text, image: b.images[0] }))).includes('PASSAGE 3: Passage 3 about'));
+  // Calibration (ministral, 2 rounds): an object that only belonged to a person of the passage, a location map and a memorial card passed as 'fits'
+  assert.ok(/belonged to|location map|memorial/i.test(buildFootagePrompt([{ index: 1, passage: 'p', image: {} }])), 'the prompt names the related-object cases that do not fit');
 
   // pictures that do not fit make their beats fall; the rest stays
   const fit = await checkFootageFit({ story: story7, judge: verdicts([1, 2, 4, 5, 7]), readImage: read });

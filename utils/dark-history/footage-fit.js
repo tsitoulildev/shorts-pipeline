@@ -24,7 +24,7 @@ function buildFootagePrompt(entries) {
 For EVERY picture do three things, in this order:
 1. "shows": what the picture shows, in a few words (look at the picture, not at the text).
 2. "subject": the one person, ship, place, document, object or event of the passage that the picture would illustrate, or "none".
-3. "fits": true only when the picture shows something that the passage itself names or describes, so a sentence from the passage can be spoken over it. A picture of a RELATED topic does not fit, even when the article is about it: a map of another region, a modern or generic photo, a portrait of someone the passage does not mention, a picture of a theory the passage does not describe. When you are unsure, "fits" is false.
+3. "fits": true only when the picture shows something that the passage itself names or describes, so a sentence from the passage can be spoken over it. A picture of a RELATED topic does not fit, even when the article is about it: a map of another region, a modern or generic photo, a portrait of someone the passage does not mention, a picture of a theory the passage does not describe. An object that merely belonged to a person of the passage (a desk, a chest, a tool), a location or relief map of the country, and a memorial card or portrait of the victims do not fit unless the passage itself describes that very item. When you are unsure, "fits" is false.
 
 ${lines}
 
