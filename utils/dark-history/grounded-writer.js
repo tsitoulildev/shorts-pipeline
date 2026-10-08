@@ -3,7 +3,7 @@
 // is the fact-check gate plus a documentary prose check. Nothing here lowers a gate or touches the fiction path.
 const { reviewedScriptLoop } = require('../creative-review');
 const { parseJsonResponse } = require('../json-response');
-const { checkFacts, sentencesOf } = require('./fact-check');
+const { checkFacts, sentencesOf, claimIssues, provenEvidenceText, norm } = require('./fact-check');
 const { attributionText } = require('./attribution');
 const { checkImageFit, describePictures, makeVisionJudge } = require('./image-fit');
 
@@ -95,9 +95,45 @@ function proseIssues(script) {
   return notes;
 }
 
+/**
+ * Repair by deletion: the verifier says which narration sentences the evidence does not support; those sentences are removed instead of asking
+ * the model to rewrite them (a rewrite can add new inventions, deleting cannot). A sentence with a number, name or quotation that is not in the
+ * evidence goes too, a beat whose evidence is not in the source is skipped (its picture falls), and so is a beat left with fewer than
+ * MIN_BEAT_WORDS words. Returns the repaired script, or null when fewer than 4 narrated beats would remain. Nothing is added and nothing is
+ * relaxed: the repaired script goes through the same fact-check and picture check again.
+ */
+const MIN_BEAT_WORDS = 8;
+function repairByDeletion(script, story, facts) {
+  const flagged = new Set((facts.unsupported || []).map(item => `${item.beat}.${item.sentence}`));
+  const extract = norm(story.plan.extract);
+  const beats = script.beats.map((beat, index) => {
+    if (beat.skip) return beat;
+    const evidenceText = provenEvidenceText(beat.evidence, story.plan.beats[index].text, story.plan.extract);
+    const kept = evidenceText ? sentencesOf(beat.narration).filter((sentence, i) => !flagged.has(`${index + 1}.${i + 1}`) && !claimIssues(sentence, evidenceText, extract).length) : [];
+    const narration = kept.join(' ');
+    return wordCount(narration) < MIN_BEAT_WORDS ? { ...beat, skip: true, narration: '', evidence: [] } : { ...beat, narration };
+  });
+  return beats.filter(beat => !beat.skip).length < 4 ? null : withSummary({ ...script, beats });
+}
+
 /** { overall, passed, failures, notes, source } in the shape reviewedScriptLoop expects. */
-async function reviewGrounded(script, story, verify, imageFit = null) {
-  const facts = await checkFacts(script, story, { verify, parseJson: parseJsonResponse });
+async function reviewGrounded(script, story, verify, imageFit = null, { repair = true } = {}) {
+  let facts = await checkFacts(script, story, { verify, parseJson: parseJsonResponse });
+  let repaired = null;
+  if (!facts.passed && !facts.structural && repair) {
+    // Delete what the checks refuse instead of asking the model to rewrite it; the result is verified again from scratch.
+    const before = script.beats.filter(beat => !beat.skip);
+    const fixed = repairByDeletion(script, story, facts);
+    if (fixed) {
+      const again = await checkFacts(fixed, story, { verify, parseJson: parseJsonResponse });
+      if (again.passed) {
+        const after = fixed.beats.filter(beat => !beat.skip);
+        repaired = { removedSentences: before.reduce((n, beat) => n + sentencesOf(beat.narration).length, 0) - after.reduce((n, beat) => n + sentencesOf(beat.narration).length, 0), skippedBeats: before.length - after.length };
+        Object.assign(script, { beats: fixed.beats, fullScript: fixed.fullScript, hook: fixed.hook });
+        facts = again;
+      }
+    }
+  }
   // An unavailable vision model throws VISION_UNAVAILABLE: unchecked pictures never pass.
   // (Vision requests are free-tier quota: they run on drafts whose facts hold; a draft with a fact problem is rewritten first.)
   const fit = !facts.passed ? { passed: false, issues: [], checkedBeats: 0, skipped: true } : await checkImageFit({ script, story, ...(imageFit || {}) });
@@ -105,7 +141,7 @@ async function reviewGrounded(script, story, verify, imageFit = null) {
   const accepted = facts.passed && fit.passed;
   const overall = accepted ? Math.max(0, 10 - 1.5 * prose.length) : 0;
   const failures = [...(facts.passed ? [] : ['fact-check failed']), ...(fit.passed || fit.skipped ? [] : ['a picture does not fit its narration']), ...(prose.length && overall < PASS_SCORE ? ['documentary prose below the floor'] : [])];
-  return { overall: Number(overall.toFixed(2)), passed: accepted && overall >= PASS_SCORE, failures, notes: [...facts.issues, ...fit.issues, ...prose], source: 'fact-check+images+prose', facts, imageFit: { passed: fit.passed, checkedBeats: fit.checkedBeats } };
+  return { overall: Number(overall.toFixed(2)), passed: accepted && overall >= PASS_SCORE, failures, notes: [...facts.issues, ...fit.issues, ...prose], source: 'fact-check+images+prose', facts, ...(repaired ? { repairedByDeletion: repaired } : {}), imageFit: { passed: fit.passed, checkedBeats: fit.checkedBeats } };
 }
 
 function parseDraft(reply, story) {
@@ -134,7 +170,7 @@ function buildDescription(script, story) {
  * writeGroundedScript({ story, llm }) -> script, or throws CREATIVE_REVIEW_REJECTED when no draft passes the fact-check.
  * `story` is a claimed story_pool row: { plan: { title, extract, beats }, attribution }. llm = an AITextService.
  */
-async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3, imageFit = null }) {
+async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3, imageFit = null, repair = true }) {
   const fitOptions = imageFit || { judge: makeVisionJudge(llm) };
   // Fail before spending: unchecked pictures never pass, so without a vision model there is no point in writing.
   if (!fitOptions.judge) throw Object.assign(new Error('no vision model is available to check that the pictures fit the narration'), { code: 'VISION_UNAVAILABLE' });
@@ -163,7 +199,7 @@ async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3
       previous = draft;
       return draft;
     },
-    review: draft => reviewGrounded(draft, story, prompt => ask(prompt, { task: 'packaging', maxTokens: 400, temperature: 0 }), fitOptions)
+    review: draft => reviewGrounded(draft, story, prompt => ask(prompt, { task: 'packaging', maxTokens: 400, temperature: 0 }), fitOptions, { repair })
   });
   // Skipped beats leave the script (and the story's footage and credits) here, so everything downstream sees one beat per picture.
   script.sourceBeatIndexes = script.beats.map((b, i) => (b.skip ? null : i)).filter(i => i !== null);
@@ -175,4 +211,4 @@ async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3
   return script;
 }
 
-module.exports = { writeGroundedScript, storyForScript, reviewGrounded, buildPrompt, buildDescription, proseIssues, parseDraft, affectedBeats };
+module.exports = { repairByDeletion, writeGroundedScript, storyForScript, reviewGrounded, buildPrompt, buildDescription, proseIssues, parseDraft, affectedBeats };

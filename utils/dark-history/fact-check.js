@@ -38,6 +38,23 @@ function closestSentence(claim, text) {
   return bestScore >= 0.6 ? best : null;
 }
 
+/** Problems of one narration text against the proven evidence text (normalized) and the normalized article: numbers, amounts, names, quotations. */
+function claimIssues(narration, evidenceText, extract) {
+  const problems = [];
+  for (const n of digits(narration)) if (!digits(evidenceText).includes(n)) problems.push(`number "${n}" is not in its evidence`);
+  for (const w of narration.match(NUMBER_WORDS) || []) if (!new RegExp(`\\b${w}\\b`, 'i').test(evidenceText)) problems.push(`amount "${w}" is not in its evidence`);
+  for (const noun of properNouns(narration)) if (!extract.includes(norm(noun))) problems.push(`"${noun}" does not appear in the source`);
+  for (const quote of narration.match(/"([^"]{3,})"/g) || []) if (!extract.includes(norm(quote.slice(1, -1)))) problems.push(`invented quotation ${quote.slice(0, 60)}`);
+  return problems;
+}
+
+/** The evidence of a beat that is verbatim in the beat's passage or the article, as one normalized text ('' when none is). */
+function provenEvidenceText(evidence, passageText, extractText) {
+  const passage = norm(passageText);
+  const extract = norm(extractText);
+  return norm((Array.isArray(evidence) ? evidence : []).map(String).filter(e => norm(e).split(' ').length >= MIN_EVIDENCE_WORDS && (passage.includes(norm(e)) || extract.includes(norm(e)))).join(' '));
+}
+
 /** Deterministic checks. Returns { passed, issues[] } (issues name the beat and the offending text). */
 function checkFactsDeterministic(script, story) {
   const issues = [];
@@ -71,15 +88,8 @@ function checkFactsDeterministic(script, story) {
     });
     const evidenceText = norm(proven.join(' '));
 
-    // 2. numbers, years and spelled-out amounts must come from the evidence
-    for (const n of digits(narration)) if (!digits(evidenceText).includes(n)) issue(index, `${label}: number "${n}" is not in its evidence`);
-    for (const w of narration.match(NUMBER_WORDS) || []) if (!new RegExp(`\\b${w}\\b`, 'i').test(evidenceText)) issue(index, `${label}: amount "${w}" is not in its evidence`);
-
-    // 3. names and places must exist somewhere in the source article
-    for (const noun of properNouns(narration)) if (!extract.includes(norm(noun))) issue(index, `${label}: "${noun}" does not appear in the source`);
-
-    // 4. quoted speech must be quoted from the source
-    for (const quote of narration.match(/"([^"]{3,})"/g) || []) if (!extract.includes(norm(quote.slice(1, -1)))) issue(index, `${label}: invented quotation ${quote.slice(0, 60)}`);
+    // 2-4. numbers, years and amounts come from the evidence; names and places and quotations exist in the source article
+    for (const problem of claimIssues(narration, evidenceText, extract)) issue(index, `${label}: ${problem}`);
   });
   return { passed: issues.length === 0, issues, beatsWithIssues: withIssues };
 }
@@ -139,18 +149,20 @@ async function checkFacts(script, story, { verify, parseJson } = {}) {
     const reply = await verify(verifierPrompt(script, story, exclude));
     const unsupported = unsupportedOf(parseJson(reply));
     if (!unsupported) return { passed: false, issues: [...deterministic.issues, `fact verifier returned an unusable answer: ${JSON.stringify(String(reply)).slice(0, 160)}`] };
+    const flagged = [];
     const issues = unsupported.map(item => {
       const id = typeof item === 'object' && item !== null ? item.id : item;
       const reason = typeof item === 'object' && item !== null && item.reason ? ` (${String(item.reason).slice(0, 120)})` : '';
       const [b, s] = String(id).split('.').map(Number);
+      flagged.push({ beat: b, sentence: s });
       const sentence = sentencesOf(script.beats[b - 1]?.narration)[s - 1];
       return `beat ${b}: the source does not support "${String(sentence || id).slice(0, 100)}"${reason}`;
     });
     const all = [...deterministic.issues, ...issues];
-    return { passed: all.length === 0, issues: all };
+    return { passed: all.length === 0, issues: all, unsupported: flagged, beatsWithIssues: deterministic.beatsWithIssues };
   } catch (error) {
     return { passed: false, issues: [...deterministic.issues, `fact verifier unavailable (${String(error.message).slice(0, 80)}): the claims could not be checked`] };
   }
 }
 
-module.exports = { checkFacts, checkFactsDeterministic, verifierPrompt, unsupportedOf, properNouns, sentencesOf, norm };
+module.exports = { checkFacts, checkFactsDeterministic, claimIssues, provenEvidenceText, verifierPrompt, unsupportedOf, properNouns, sentencesOf, norm };
