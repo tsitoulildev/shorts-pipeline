@@ -11,6 +11,14 @@ assert.strictEqual(tracker.isAvailable('nvidia', 'minimaxai/minimax-m3'), false)
 assert.strictEqual(tracker.isAvailable('nvidia', 'nvidia/nemotron-3-super-120b-a12b'), true);
 console.log('LLM cooldown 410: PASS');
 
+// A 403 about the plan disables that model only; a plain 403 or 401 still disables the provider (a bad key).
+const tiers = new CooldownTracker();
+const tier = Object.assign(new Error('403 {"message":"This model is not available in your subscription tier","type":"tier_not_allowed"}'), { status: 403 });
+assert.strictEqual(tiers.recordFailure('mistral', 'mistral-large-latest', tier).action, 'model-disabled');
+assert.strictEqual(tiers.isAvailable('mistral', 'ministral-14b-latest'), true);
+assert.strictEqual(tiers.recordFailure('mistral', 'mistral-small-latest', Object.assign(new Error('403 forbidden'), { status: 403 })).action, 'provider-disabled');
+console.log('LLM cooldown tier 403: PASS');
+
 // A short per-minute rate limit is waited out once; a long one is not.
 (async () => {
   const { AITextService } = require('../utils/ai-text-service');
