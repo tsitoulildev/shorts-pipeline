@@ -30,13 +30,17 @@ jobs:
 
       - name: Install system FFmpeg (same Ubuntu 24.04 build as the Oracle runtime)
         id: sysffmpeg
-        timeout-minutes: 6
+        timeout-minutes: 12
         continue-on-error: true
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo -E apt-get update -qq
-          sudo -E apt-get install -y -qq --no-install-recommends ffmpeg
+          # A slow package mirror once held this step for 6 minutes and the tests then ran without drawtext: retry with short timeouts.
+          APT="-o Acquire::Retries=3 -o Acquire::http::Timeout=20"
+          for attempt in 1 2 3; do
+            if sudo -E timeout 150 apt-get update -qq $APT && sudo -E timeout 240 apt-get install -y -qq --no-install-recommends $APT ffmpeg; then break; fi
+            echo "apt attempt $attempt failed"; sleep 10
+          done
           /usr/bin/ffmpeg -version | head -1
 
       - name: Install fresh dependencies
@@ -54,6 +58,10 @@ jobs:
           FFPROBE_PATH: ${{ steps.sysffmpeg.outcome == 'success' && '/usr/bin/ffprobe' || '' }}
         run: |
           set -o pipefail
+          if [ -z "$FFMPEG_PATH" ]; then
+            echo "::error title=No system FFmpeg::the system FFmpeg could not be installed (package mirror), and the bundled ffmpeg-static has no drawtext filter, so the tests cannot run. Re-run the job."
+            exit 1
+          fi
           npm test 2>&1 | tee test-output.log
 
       - name: Annotate test failure
