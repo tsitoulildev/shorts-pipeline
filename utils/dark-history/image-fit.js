@@ -146,18 +146,20 @@ const EXTERNAL_VISION = [
 ];
 
 /**
- * The vision judge: free Gemini models first, then the free OpenAI-compatible vision models whose keys are configured, never a
+ * The vision judge: the free OpenAI-compatible vision models (Mistral), then the free Gemini models; the OpenAI-compatible ones whose keys are configured, never a
  * text-only model. A provider that errors (a spent daily quota rests for 30 min, anything else for 2) or whose answer fails
  * `validate` is skipped for the next one. No Gemini client and no key means no judge (checkImageFit then fails closed).
  * Options: models (Gemini ids), only (a provider name, for calibration), env, post (injected in tests), now.
  */
 function makeVisionJudge(llm, { models = null, timeoutMs = FIT_TIMEOUT_MS, env = process.env, post = null, now = Date.now, only = null } = {}) {
   const wanted = only || env.VISION_ONLY || null;
+  // Order: the calibrated free vision models first, Gemini last. Gemini's free quota is the one the production writer (and the old system) live on,
+  // and on the footage check it judged far more strictly than the others (0 of 5 beats for a story the others passed 5 of 5).
   const entries = [];
+  for (const external of EXTERNAL_VISION) if (env[external.envKey]) entries.push({ kind: 'openai', ...external, key: env[external.envKey] });
   if (llm?.gemini) {
     for (const model of models || [...new Set([llm.model, 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite'].filter(Boolean))]) entries.push({ kind: 'gemini', name: `Gemini ${model}`, model });
   }
-  for (const external of EXTERNAL_VISION) if (env[external.envKey]) entries.push({ kind: 'openai', ...external, key: env[external.envKey] });
   const chain = wanted ? entries.filter(entry => entry.name.toLowerCase().includes(String(wanted).toLowerCase())) : entries;
   if (!chain.length) return null;
   const resting = new Map();
