@@ -79,27 +79,28 @@ const FREE_PROVIDERS = {
     dataPolicy: DATA_POLICIES.LOGGED_TRIAL_ONLY,
     tokenParam: 'max_tokens',
     // Free with NVIDIA Developer Program membership: 40 RPM, 10,000 RPD per model.
-    // Model ids checked against the live https://integrate.api.nvidia.com/v1/models list (2026-10-04).
-    // Order: fast and capable first; the 550B Ultra is last because it timed out in production.
+    // Measured on the VM with this account's key on 2026-10-09 (GET /v1/models lists 80 ids, 50 look like chat models; many of those answer
+    // HTTP 404 for chat). One small JSON call, then one realistic call (about 2,300 characters of source, a 4-beat JSON answer, max_tokens 2200):
+    //   kimi-k3 1.2 s / 8.5 s ok-json; nemotron-3-super-120b 0.9 s / 12.9 s (needs the reasoning headroom: 2200 tokens ended in finish=length);
+    //   gpt-oss-20b 1.6 s / 42.8 s ok-json (slow when it reasons); glm-5.3 1.4 s / timeout 60 s; nemotron-3-ultra-550b 8.6 s / timeout 60 s;
+    //   nemotron-3.5-lightning 3.6 s / 58 s and its content repeated its reasoning; nemotron-3-nano-omni 1.1 s / HTTP 503;
+    //   deepseek-v4.1-flash, gemma-4-31b-it and glm-5.3-flash timed out at 25 s even on the small call. gpt-oss-120b is not in this key's list.
+    // Only the models that answered the realistic call stay; timeoutMs is per model (a slow model is dropped fast and the chain moves on).
     tiers: {
       quality: [
-        { id: 'deepseek-ai/deepseek-v4.1-flash', maxOutput: null, reasoning: true },
-        { id: 'nvidia/nemotron-3-super-120b-a12b', maxOutput: 262000, reasoning: true },
-        { id: 'moonshotai/kimi-k3', maxOutput: null, reasoning: true },
-        { id: 'z-ai/glm-5.3', maxOutput: null, reasoning: true },
-        { id: 'nvidia/nemotron-3-ultra-550b-a55b', maxOutput: 262000, reasoning: true },
+        { id: 'moonshotai/kimi-k3', maxOutput: null, reasoning: true, timeoutMs: 40000 },
+        { id: 'nvidia/nemotron-3-super-120b-a12b', maxOutput: 262000, reasoning: true, timeoutMs: 45000 },
+        { id: 'openai/gpt-oss-20b', maxOutput: 131000, reasoning: true, timeoutMs: 60000 },
       ],
       balanced: [
-        { id: 'nvidia/nemotron-3-super-120b-a12b', maxOutput: 262000, reasoning: true },
-        { id: 'z-ai/glm-5.3-flash', maxOutput: null, reasoning: true },
-        { id: 'nvidia/nemotron-3.5-lightning-30b-a3b', maxOutput: null, reasoning: true },
-        { id: 'google/gemma-4-31b-it', maxOutput: 8000 },
+        { id: 'moonshotai/kimi-k3', maxOutput: null, reasoning: true, timeoutMs: 40000 },
+        { id: 'nvidia/nemotron-3-super-120b-a12b', maxOutput: 262000, reasoning: true, timeoutMs: 45000 },
+        { id: 'openai/gpt-oss-20b', maxOutput: 131000, reasoning: true, timeoutMs: 60000 },
       ],
       fast: [
-        { id: 'nvidia/nemotron-3.5-lightning-30b-a3b', maxOutput: null, reasoning: true },
-        { id: 'nvidia/nemotron-nano-3-30b-a3b', maxOutput: 32000, reasoning: true },
-        { id: 'openai/gpt-oss-20b', maxOutput: 131000, reasoning: true },
-        { id: 'google/gemma-4-31b-it', maxOutput: 8000 },
+        { id: 'moonshotai/kimi-k3', maxOutput: null, reasoning: true, timeoutMs: 30000 },
+        { id: 'openai/gpt-oss-20b', maxOutput: 131000, reasoning: true, timeoutMs: 45000 },
+        { id: 'nvidia/nemotron-3-super-120b-a12b', maxOutput: 262000, reasoning: true, timeoutMs: 30000 },
       ],
     },
   },
@@ -236,6 +237,7 @@ function getCandidates({ task, maxTokens = 0, providerIds, env = process.env } =
         tier,
         maxOutput: model.maxOutput || null,
         reasoning: model.reasoning === true,
+        timeoutMs: model.timeoutMs || null,
         tokenParam: provider.tokenParam,
         dataPolicy: provider.dataPolicy,
       });

@@ -80,6 +80,19 @@ function isFreeLLMOnly() {
 }
 
 // Reasoning models on free providers may inline their scratchpad in the answer.
+// The last complete JSON object found in a reasoning text (balanced braces that parse), as a string, or null.
+function jsonObjectFrom(text) {
+  const value = String(text || '');
+  for (let end = value.lastIndexOf('}'); end > 0; end = value.lastIndexOf('}', end - 1)) {
+    let depth = 0;
+    for (let start = end; start >= 0; start -= 1) {
+      if (value[start] === '}') depth += 1;
+      else if (value[start] === '{') { depth -= 1; if (depth === 0) { const part = value.slice(start, end + 1); try { JSON.parse(part); return part; } catch (_e) { break; } } }
+    }
+  }
+  return null;
+}
+
 function stripThinking(text) {
   let cleaned = String(text || '').replace(/<think>[\s\S]*?<\/think>/gi, '');
   // An unclosed block means the budget ran out mid-thought: nothing usable follows.
@@ -434,6 +447,14 @@ class AITextService {
     return this._runFreeChain(candidates, prompt, maxTokens, temperature, failures);
   }
 
+  // One line with the per-model numbers every 25 free-model calls (successes, timeouts, empty answers, rate limits, average time of a success).
+  _logModelStats(tracker) {
+    this.freeCallCount = (this.freeCallCount || 0) + 1;
+    if (this.freeCallCount % 25 !== 0) return;
+    const line = tracker.getStats().map(stat => `${stat.model} ok ${stat.ok} (avg ${stat.avgOkMs ?? '-'} ms) timeout ${stat.timeout} empty ${stat.empty} 429 ${stat.rateLimited} other ${stat.other}${stat.expelled ? ` expelled ${stat.expelled}` : ''}`).join(' | ');
+    this.logger?.info?.(`Free model statistics: ${line}`);
+  }
+
   async _runFreeChain(candidates, prompt, maxTokens, temperature, failures) {
     const tracker = this._cooldowns();
     let lastError = null;
@@ -447,12 +468,15 @@ class AITextService {
       const isPrimary = candidate.providerId === this.freePrimaryId;
       const client = isPrimary && this.client ? this.client : (this.freeClients || {})[candidate.providerId];
       const label = `${candidate.providerName} ${candidate.model}`;
+      const startedAt = Date.now();
       try {
         const text = await this._generateFree(client, candidate, prompt, maxTokens, temperature);
-        tracker.recordSuccess(candidate.providerId, candidate.model);
+        tracker.recordSuccess(candidate.providerId, candidate.model, Date.now() - startedAt);
+        this._logModelStats(tracker);
         return { ok: true, text };
       } catch (error) {
         const outcome = tracker.recordFailure(candidate.providerId, candidate.model, error, { isPrimary });
+        this._logModelStats(tracker);
         // A rejected key on the primary provider must stay loud, never a silent failover.
         if (outcome.action === 'auth-error') throw error;
         lastError = error;
@@ -471,16 +495,27 @@ class AITextService {
   }
 
   async _generateFree(client, candidate, prompt, maxTokens, temperature) {
-    const response = await client.chat.completions.create({
+    const request = {
       model: candidate.model,
       messages: [{ role: 'user', content: prompt }],
       temperature,
       [candidate.tokenParam]: completionBudget(candidate, maxTokens),
-    });
-    const content = stripThinking(this._extractContent(response, candidate.providerName));
-    this.lastCall = { provider: candidate.providerName, model: candidate.model, finishReason: response?.choices?.[0]?.finish_reason || null };
-    if (!content) {
-      const error = new Error(`${candidate.providerName} returned an empty response. The provider response did not satisfy the text-agent contract.`);
+    };
+    // A per-model timeout (the catalog's timeoutMs) replaces the client-wide one: a slow model is dropped fast and the chain moves on.
+    const response = candidate.timeoutMs
+      ? await client.chat.completions.create(request, { timeout: candidate.timeoutMs })
+      : await client.chat.completions.create(request);
+    const message = response?.choices?.[0]?.message || {};
+    const finishReason = response?.choices?.[0]?.finish_reason || null;
+    let content = typeof message.content === 'string' ? stripThinking(message.content) : '';
+    if (!content.trim()) {
+      // A reasoning model can leave `content` empty and put a finished JSON answer in its reasoning field; use it only when it is a complete JSON object.
+      const rescued = jsonObjectFrom(message.reasoning_content || message.reasoning);
+      if (rescued) content = rescued;
+    }
+    this.lastCall = { provider: candidate.providerName, model: candidate.model, finishReason };
+    if (!content || !content.trim()) {
+      const error = new Error(`${candidate.providerName} returned an empty response${finishReason === 'length' ? ' (cut off by the token budget while reasoning)' : ''}. The provider response did not satisfy the text-agent contract.`);
       error.code = 'AI_EMPTY_RESPONSE';
       throw error;
     }

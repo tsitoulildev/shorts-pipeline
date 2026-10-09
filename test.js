@@ -3542,8 +3542,8 @@ class SystemTest {
 
     // A model whose documented output cap is below the request is skipped.
     const small = catalog.getCandidates({ task: 'packaging', maxTokens: 1200, providerIds: ['nvidia'], env: {} });
-    const large = catalog.getCandidates({ task: 'packaging', maxTokens: 9000, providerIds: ['nvidia'], env: {} });
-    if (!small.some(item => item.model === 'google/gemma-4-31b-it') || large.some(item => item.model === 'google/gemma-4-31b-it')) {
+    const large = catalog.getCandidates({ task: 'packaging', maxTokens: 140000, providerIds: ['nvidia'], env: {} });
+    if (!small.some(item => item.model === 'openai/gpt-oss-20b') || large.some(item => item.model === 'openai/gpt-oss-20b')) {
       throw new Error('maxOutput is not enforced against the requested maxTokens');
     }
 
