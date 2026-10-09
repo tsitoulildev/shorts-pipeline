@@ -2,6 +2,8 @@
 // In-memory only: a restart forgets cooldowns and the next 429 re-establishes them.
 
 const TRANSIENT_BACKOFF_MS = [20 * 1000, 60 * 1000, 5 * 60 * 1000];
+// A model that keeps timing out or answering with nothing: 20 s, 60 s, then out for 30 min (one success resets it).
+const UNRESPONSIVE_BACKOFF_MS = [20 * 1000, 60 * 1000, 30 * 60 * 1000];
 const DEFAULT_RATE_LIMIT_MS = 60 * 1000;
 const MAX_DAILY_QUOTA_MS = 6 * 60 * 60 * 1000;
 
@@ -10,6 +12,7 @@ const MODEL_NOT_FOUND_PATTERN = /model.{0,60}(not found|does not exist|decommiss
 // A 403 that names the plan (Mistral free: `mistral-large-latest` is "not available in your subscription tier") is about ONE model, not the key.
 const TIER_NOT_ALLOWED_PATTERN = /tier_not_allowed|not available in your (subscription )?tier|subscription tier/i;
 const TRANSIENT_PATTERN = /timeout|timed out|temporar|unavailable|overloaded|high demand|connection error/i;
+const TIMEOUT_PATTERN = /timeout|timed out/i;
 const TRANSIENT_CODES = ['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN'];
 
 function readHeader(error, name) {
@@ -43,6 +46,8 @@ class CooldownTracker {
     this.now = options.now || Date.now;
     this.cooldowns = new Map();
     this.transientFailures = new Map();
+    this.unresponsive = new Map();
+    this.stats = new Map();
     this.disabledModels = new Map();
     this.disabledProviders = new Map();
   }
@@ -68,16 +73,47 @@ class CooldownTracker {
     return this.remainingMs(provider, model) > 0 ? 'cooldown' : 'ready';
   }
 
-  recordSuccess(provider, model) {
+  recordSuccess(provider, model, ms = null) {
     const key = this.key(provider, model);
     this.cooldowns.delete(key);
     this.transientFailures.delete(key);
+    this.unresponsive.delete(key);
+    const stat = this._stat(key);
+    stat.ok += 1;
+    if (Number.isFinite(ms)) { stat.okMs += ms; stat.maxOkMs = Math.max(stat.maxOkMs, ms); }
+  }
+
+  _stat(key) {
+    if (!this.stats.has(key)) this.stats.set(key, { ok: 0, okMs: 0, maxOkMs: 0, timeout: 0, empty: 0, rateLimited: 0, other: 0, expelled: 0 });
+    return this.stats.get(key);
+  }
+
+  // Successes and failures per provider:model since the process started (real numbers for choosing the order of a tier).
+  getStats() {
+    return [...this.stats.entries()].map(([key, stat]) => ({
+      model: key,
+      ...stat,
+      avgOkMs: stat.ok ? Math.round(stat.okMs / stat.ok) : null,
+      failures: stat.timeout + stat.empty + stat.rateLimited + stat.other
+    })).sort((a, b) => b.ok - a.ok || a.failures - b.failures);
   }
 
   // Classifies a failed request and applies the matching penalty.
   // options.isPrimary keeps an auth failure on the primary provider loud: it is
   // reported but never turned into a silent provider disable.
   recordFailure(provider, model, error, options = {}) {
+    const outcome = this._classify(provider, model, error, options);
+    const stat = this._stat(this.key(provider, model));
+    const text = String(error?.message || '');
+    if (outcome.action === 'rate-limited' || outcome.action === 'daily-quota') stat.rateLimited += 1;
+    else if (String(error?.code || '').toUpperCase() === 'AI_EMPTY_RESPONSE') stat.empty += 1;
+    else if (String(error?.code || '').toUpperCase() === 'ETIMEDOUT' || TIMEOUT_PATTERN.test(text)) stat.timeout += 1;
+    else stat.other += 1;
+    if (outcome.action === 'expelled') stat.expelled += 1;
+    return outcome;
+  }
+
+  _classify(provider, model, error, options = {}) {
     const key = this.key(provider, model);
     const status = Number(error?.status || error?.response?.status || 0);
     const code = String(error?.code || '').toUpperCase();
@@ -111,6 +147,15 @@ class CooldownTracker {
         action = 'daily-quota';
       }
       return this._cooldown(key, ms, action);
+    }
+
+    // A timeout or an empty answer: the next model is tried at once; a model that keeps doing it is put out for 30 min.
+    const emptyAnswer = code === 'AI_EMPTY_RESPONSE';
+    if (emptyAnswer || code === 'ETIMEDOUT' || TIMEOUT_PATTERN.test(message)) {
+      const count = (this.unresponsive.get(key) || 0) + 1;
+      this.unresponsive.set(key, count);
+      const ms = UNRESPONSIVE_BACKOFF_MS[Math.min(count, UNRESPONSIVE_BACKOFF_MS.length) - 1];
+      return this._cooldown(key, ms, count >= UNRESPONSIVE_BACKOFF_MS.length ? 'expelled' : 'transient');
     }
 
     const transient = status >= 500 || status === 408 || status === 409 ||
