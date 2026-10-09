@@ -753,20 +753,31 @@ class PublishingSchedulingAgent {
       throw new Error('video file not found — refusing to upload placeholder');
     }
   }
+  // YouTube can answer "not properly authorized" for a thumbnail set right after the upload (seen on the VM: 2 of 7 uploads, the same call
+  // worked 20 s later), so it is retried a few times before it is given up (the upload itself never fails because of it).
   async uploadThumbnail(videoId, thumbnailPath) {
+    const attempts = Math.max(1, Number(this.thumbnailAttempts || 4));
+    const delayMs = this.thumbnailRetryDelayMs ?? 20000;
+    let thumbnailBuffer;
     try {
-      const thumbnailBuffer = await fs.readFile(thumbnailPath);
-      
-      await this.youtube.thumbnails.set({
-        videoId: videoId,
-        media: {
-          body: thumbnailBuffer
-        }
-      });
-      
-      this.logger.info(`Thumbnail uploaded for video: ${videoId}`);
+      thumbnailBuffer = await fs.readFile(thumbnailPath);
     } catch (error) {
       this.logger.error(`Failed to upload thumbnail: ${error.message}`);
+      return;
+    }
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        await this.youtube.thumbnails.set({ videoId: videoId, media: { body: thumbnailBuffer } });
+        this.logger.info(`Thumbnail uploaded for video: ${videoId}${attempt > 1 ? ` (attempt ${attempt})` : ''}`);
+        return;
+      } catch (error) {
+        if (attempt === attempts) {
+          this.logger.error(`Failed to upload thumbnail: ${error.message}`);
+        } else {
+          this.logger.warn(`Thumbnail attempt ${attempt} failed (${error.message}); retrying in ${Math.round(delayMs / 1000)}s`);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+      }
     }
   }
 
