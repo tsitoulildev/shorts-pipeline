@@ -24,6 +24,7 @@ async function main() {
   const { CredentialManager } = require('../utils/credential-manager');
   const { PublishingSchedulingAgent } = require('../agents/publishing-scheduling-agent');
   const credentials = new CredentialManager();
+  await credentials.initialize();
   const stubDb = { updateScheduleEntry: async () => {}, getLatestScheduleEntry: async () => null };
   const agent = new PublishingSchedulingAgent(stubDb, credentials);
   await agent.setupYouTubeAPI();
