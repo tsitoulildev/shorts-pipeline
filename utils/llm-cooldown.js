@@ -7,6 +7,8 @@ const MAX_DAILY_QUOTA_MS = 6 * 60 * 60 * 1000;
 
 const DAILY_QUOTA_PATTERN = /per[\s_-]?day|daily|\brpd\b|\btpd\b|free-models-per-day|requests per day|tokens per day/i;
 const MODEL_NOT_FOUND_PATTERN = /model.{0,60}(not found|does not exist|decommissioned|no longer (available|supported)|invalid model)|(unknown|invalid|no such) model|no endpoints found/i;
+// A 403 that names the plan (Mistral free: `mistral-large-latest` is "not available in your subscription tier") is about ONE model, not the key.
+const TIER_NOT_ALLOWED_PATTERN = /tier_not_allowed|not available in your (subscription )?tier|subscription tier/i;
 const TRANSIENT_PATTERN = /timeout|timed out|temporar|unavailable|overloaded|high demand|connection error/i;
 const TRANSIENT_CODES = ['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN'];
 
@@ -80,6 +82,11 @@ class CooldownTracker {
     const status = Number(error?.status || error?.response?.status || 0);
     const code = String(error?.code || '').toUpperCase();
     const message = String(error?.message || '');
+
+    if (status === 403 && TIER_NOT_ALLOWED_PATTERN.test(message)) {
+      this.disabledModels.set(key, 'HTTP 403 (tier)');
+      return { action: 'model-disabled', ms: 0 };
+    }
 
     if (status === 401 || status === 403) {
       if (options.isPrimary) return { action: 'auth-error', ms: 0 };
