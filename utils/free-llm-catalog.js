@@ -113,6 +113,8 @@ const FREE_PROVIDERS = {
     // Free mode shares one monthly allowance across Studio, the API and Vibe Code,
     // and Mistral no longer publishes numeric free-tier limits or output caps.
     //
+    // `mistral-large-latest` answers 403 on the free plan (and the SDK error carries no body, so the 403 reads as a bad key and disables the
+    // whole provider): it is not in the free tiers; set MISTRAL_MODEL_QUALITY to add it on a paid plan. `ministral-14b-latest` answers 200 on the free plan.
     // Model ids: only `mistral-large-latest` is confirmed against docs.mistral.ai
     // (it is the id used in the official API examples). The other aliases are the
     // long-standing `-latest` names but could not be confirmed without an account,
@@ -125,15 +127,17 @@ const FREE_PROVIDERS = {
     },
     tiers: {
       quality: [
-        { id: 'mistral-large-latest', maxOutput: null },
         { id: 'mistral-medium-latest', maxOutput: null },
+        { id: 'ministral-14b-latest', maxOutput: null },
       ],
       balanced: [
         { id: 'mistral-medium-latest', maxOutput: null },
         { id: 'mistral-small-latest', maxOutput: null },
+        { id: 'ministral-14b-latest', maxOutput: null },
       ],
       fast: [
         { id: 'mistral-small-latest', maxOutput: null },
+        { id: 'ministral-14b-latest', maxOutput: null },
       ],
     },
   },

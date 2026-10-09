@@ -2,7 +2,8 @@
 // ready to be turned into a Short. Backed by one SQLite table (created on first use).
 const crypto = require('crypto');
 
-const TARGET_DAYS = 14;
+// Days of stories the pool should hold; DARK_HISTORY_POOL_HORIZON_DAYS overrides it (unset or invalid: 14).
+const TARGET_DAYS = Number(process.env.DARK_HISTORY_POOL_HORIZON_DAYS) > 0 ? Number(process.env.DARK_HISTORY_POOL_HORIZON_DAYS) : 14;
 // a story whose production failed this many times is rejected for good (with the last reason) instead of looping every tick
 const MAX_ATTEMPTS = 3;
 
@@ -58,7 +59,7 @@ class StoryPool {
   /** Oldest ready story, atomically marked used. null when the pool is empty. */
   async claimNext() {
     await this.ensure();
-    const row = await this.db.getRow("SELECT * FROM story_pool WHERE status = 'ready' ORDER BY created_at, rowid LIMIT 1");
+    const row = await this.db.getRow("SELECT * FROM story_pool WHERE status = 'ready' ORDER BY attempts, created_at, rowid LIMIT 1");
     if (!row) return null;
     const { changes } = await this.db.executeQuery("UPDATE story_pool SET status = 'used', used_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'ready'", [row.id]);
     return changes ? { ...row, plan: JSON.parse(row.plan), share_alike: Boolean(row.share_alike) } : this.claimNext();
