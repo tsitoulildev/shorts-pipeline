@@ -27,6 +27,20 @@ async function main() {
   const stubDb = { updateScheduleEntry: async () => {}, getLatestScheduleEntry: async () => null };
   const agent = new PublishingSchedulingAgent(stubDb, credentials);
   await agent.setupYouTubeAPI();
+  // The scheduler's thumbnail call swallows its errors (YouTube answered "not properly authorized" for a thumbnail set right after an upload);
+  // here it is retried a few times, and the result is printed.
+  agent.uploadThumbnail = async (videoId, thumbnailPath) => {
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      try {
+        await agent.youtube.thumbnails.set({ videoId, media: { body: fs.createReadStream(thumbnailPath) } });
+        console.log(`THUMBNAIL ok (attempt ${attempt})`);
+        return;
+      } catch (error) {
+        console.log(`THUMBNAIL attempt ${attempt} failed: ${String(error.message).slice(0, 120)}`);
+        if (attempt < 4) await new Promise(resolve => setTimeout(resolve, 20000));
+      }
+    }
+  };
   const entry = {
     publishTime: when.toISOString(),
     metadata: {
