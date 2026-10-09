@@ -91,6 +91,13 @@ const article = (extract, categories = []) => ({ extract, categories });
   assert.strictEqual(second.share_alike, true);
   assert.strictEqual(await pool.claimNext(), null);
 
+  // A story that already failed once (attempts 1) waits behind the fresh ones, even though it is older.
+  await db.executeQuery("UPDATE story_pool SET status = 'ready', attempts = 1 WHERE title = 'Mary Celeste'");
+  await db.executeQuery("UPDATE story_pool SET status = 'ready', attempts = 0 WHERE title = 'Tunguska event'");
+  assert.strictEqual((await pool.claimNext()).title, 'Tunguska event');
+  assert.strictEqual((await pool.claimNext()).title, 'Mary Celeste');
+  assert.strictEqual(await pool.claimNext(), null);
+
   // An empty pool alerts at error level.
   alerts.length = 0;
   await refillPool({ pool, http: fixtureHttp, notify, visionJudge: allFit, perWeek: 28, imageDir: dir, candidates: [], logger: { warn() {} } });
@@ -130,3 +137,13 @@ const article = (extract, categories = []) => ({ extract, categories });
   fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   console.log('story pool tests passed');
 })().catch(error => { console.error(error); process.exit(1); });
+
+// The pool horizon: 14 days by default, DARK_HISTORY_POOL_HORIZON_DAYS overrides it, a bad value falls back to 14.
+{
+  const { execFileSync } = require('child_process');
+  const horizon = value => Number(execFileSync(process.execPath, ['-e', "console.log(require('./utils/dark-history/story-pool').TARGET_DAYS)"], { cwd: path.join(__dirname, '..'), env: { ...process.env, DARK_HISTORY_POOL_HORIZON_DAYS: value } }).toString().trim());
+  assert.strictEqual(horizon(''), 14);
+  assert.strictEqual(horizon('7'), 7);
+  assert.strictEqual(horizon('abc'), 14);
+  assert.strictEqual(horizon('-3'), 14);
+}

@@ -4,8 +4,8 @@ const channelIdentity = require('../utils/channel-identity');
 const { isLive, pruneOutput, sustainableCadence } = require('../utils/dark-history/live');
 const { StoryPool } = require('../utils/dark-history/story-pool');
 
-// Dark History slots: one Short per slot (3 a day, 8 h apart). Minute 40 sits between every other job (:00 :15 :20 :30 :45).
-const DEFAULT_SLOT_CRON = '40 1,9,17 * * *';
+// Dark History check: every two hours at minute 40, which sits between every other job (:00 :15 :20 :30 :45); the pacing gate (one Short per 8 h) decides.
+const DEFAULT_SLOT_CRON = '40 */2 * * *';
 const SLOT_PACING_TOLERANCE_HOURS = 1; // a slot fires a little before 8 h have passed since the last Short finished
 
 class DailyAutomation {

@@ -29,7 +29,7 @@ async function main() {
   assert.equal(await next, 'b');
   assert.deepEqual(log, ['a-start', 'a-end', 'b-start']);
 
-  // the cron expressions: live -> slots at minute 40, not live -> the old two-hourly check; a bad override falls back to the default slots
+  // the cron expressions: live -> the check at minute 40 every two hours, not live -> the old two-hourly check; a bad override falls back to the default slots
   const seen = [];
   const realSchedule = cron.schedule;
   cron.schedule = (expression, fn, opts) => { seen.push(expression); return realSchedule.call(cron, expression, fn, opts); };
@@ -44,7 +44,7 @@ async function main() {
       s.scheduledTasks.forEach(task => task.stop());
     }
   } finally { cron.schedule = realSchedule; }
-  assert.deepEqual(tasks, ['40 1,9,17 * * *', '40 1,9,17 * * *', '10 4,12,20 * * *', '0 */2 * * *']);
+  assert.deepEqual(tasks, ['40 */2 * * *', '40 */2 * * *', '10 4,12,20 * * *', '0 */2 * * *']);
 
   // pacing: 21/week = one per 8 h. Live: a slot 7.5 h after the last Short is due (tolerance 1 h), 6.5 h is not. Not live: 7.5 h is not due.
   process.env.DARK_HISTORY_LIVE = 'true';
