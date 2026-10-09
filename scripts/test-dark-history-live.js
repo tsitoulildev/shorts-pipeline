@@ -27,6 +27,9 @@ const { runFFmpeg, checkFFmpeg } = require('../utils/ffmpeg');
 const { softPhoto, rescaledCopy } = require('./lib/stand-in-photos');
 const { StoryPool } = require('../utils/dark-history/story-pool');
 const { isLive, isDocumentary, buildProductionData } = require('../utils/dark-history/live');
+// index.js calls dotenv, which puts the keys of a local .env (the VM's) back into the environment: remove the vision key again AFTER the requires,
+// otherwise the footage check sends the stand-in pictures to the real Mistral model (found on the first deploy after the key was configured).
+delete process.env.MISTRAL_API_KEY;
 const { attributionText } = require('../utils/dark-history/attribution');
 const { produceDocumentaryShort } = require('../utils/dark-history/produce');
 
