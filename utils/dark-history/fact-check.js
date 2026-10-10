@@ -4,7 +4,9 @@
 // Script shape: { title, beats: [{ narration, evidence: ["verbatim source sentence", ...] }] }, one beat per footage beat.
 // 1-4 are deterministic and free; 5 asks the free LLM whether the passage supports each sentence and FAILS CLOSED.
 
-const norm = text => String(text || '').toLowerCase().replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').replace(/\s+/g, ' ').trim();
+// Typography only, applied to the evidence AND to the source: every dash and hyphen variant is '-', curly quotes are straight, the ellipsis character is three dots,
+// invisible characters go, white space collapses. A different word or number is still a different text. (Seen live: a source with U+2011 and a quote with '-' failed.)
+const norm = text => String(text || '').toLowerCase().replace(/[\u00ad\u200b-\u200d\u2060\ufeff]/g, '').replace(/[\u2018\u2019\u201a\u2032]/g, "'").replace(/[\u201c\u201d\u201e\u2033]/g, '"').replace(/[\u2010-\u2015\u2212]/g, '-').replace(/\u2026/g, '...').replace(/\s+/g, ' ').trim();
 const sentencesOf = text => String(text || '').split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);
 const NUMBER_WORDS = /\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|dozen)\b/gi;
 const MIN_EVIDENCE_WORDS = 5;

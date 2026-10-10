@@ -360,5 +360,12 @@ const fitOk = { judge: async () => JSON.stringify({ mismatch: [] }), readImage: 
   assert.ok(html.includes('Story &lt;1&gt;') && html.includes('CC BY-SA 4.0') && html.includes('approved by the LLM judge') && html.includes('src="https://upload.wikimedia.org/a.jpg"'));
   assert.ok(/1 passage\(s\) left out/.test(html) && html.includes('Lost') && html.includes('rejected: X.jpg'));
 
+  // typography is normalised on both sides (non-breaking hyphen, curly quotes, ellipsis character, odd spaces); a different word or number is not
+  {
+    const { norm } = require('../utils/dark-history/fact-check');
+    assert.strictEqual(norm("It is marked with a chain\u2011outlined pad\u00a0and a plaque\u2026"), norm("it is marked with a chain-outlined pad and a plaque..."));
+    assert.strictEqual(norm("\u201cHe said\u201d \u2212 it\u2019s"), norm("\"he said\" - it's"));
+    assert.notStrictEqual(norm("six men"), norm("five men"));
+  }
   console.log('dark-history writer tests passed');
 })().catch(error => { console.error(error); process.exit(1); });
