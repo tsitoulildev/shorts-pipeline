@@ -23,7 +23,7 @@ function makeLlmJudge(llm) {
   return async function judge(beat, candidates, context = {}) {
     if (!candidates.length) return [];
     try {
-      const reply = await llm.generateText(buildPrompt(beat, candidates, context), { task: 'packaging', maxTokens: JUDGE_MAX_TOKENS, temperature: 0, responseMimeType: 'application/json' });
+      const reply = await llm.generateText(buildPrompt(beat, candidates, context), { task: 'packaging', maxTokens: JUDGE_MAX_TOKENS, temperature: 0, responseMimeType: 'application/json', preferFree: true });
       const numbers = parseJsonResponse(reply)?.relevant;
       return Array.isArray(numbers) ? numbers.map(n => candidates[Number(n) - 1]).filter(Boolean) : [];
     } catch (_error) {

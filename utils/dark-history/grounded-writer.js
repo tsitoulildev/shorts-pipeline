@@ -176,7 +176,15 @@ async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3
   if (!fitOptions.judge) throw Object.assign(new Error('no vision model is available to check that the pictures fit the narration'), { code: 'VISION_UNAVAILABLE' });
   const shows = await describePictures({ story, ...fitOptions });
   let previous = null;
-  const ask = (prompt, options) => llm.generateText(prompt, { task: 'script', responseMimeType: 'application/json', ...options });
+  // Free providers first (Gemini only when all of them failed). A reply that is cut off by the token budget is as unusable as a malformed one, and the
+  // retry goes to another model than the one that produced it.
+  let lastModel = null;
+  const ask = async (prompt, options) => {
+    const reply = await llm.generateText(prompt, { task: 'script', responseMimeType: 'application/json', preferFree: true, avoidModel: lastModel, ...options });
+    lastModel = llm.lastCall?.model || lastModel;
+    if (/^(length|max_tokens)$/i.test(String(llm.lastCall?.finishReason || ''))) throw Object.assign(new Error(`the reply was cut off by the token limit (${lastModel})`), { cutOff: true });
+    return reply;
+  };
   const script = await reviewedScriptLoop({
     maxRevisions, logger,
     write: async brief => {
@@ -186,7 +194,7 @@ async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3
         try {
           draft = parseDraft(await ask(buildPrompt(story, brief, previous, shows), { maxTokens: 2200, temperature: brief ? 0.4 : 0.6 }), story);
         } catch (error) {
-          if (tries >= 2 || !/no title.beats|JSON|Unexpected token|parse/i.test(error.message)) throw error;
+          if (tries >= 2 || !(error.cutOff || /no title.beats|JSON|Unexpected (token|end)|Unterminated|parse/i.test(error.message))) throw error;
           logger?.warn?.(`grounded writer: unusable reply (${error.message}); asking again`);
         }
       }

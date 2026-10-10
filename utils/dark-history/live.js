@@ -111,7 +111,7 @@ async function releaseAfterFailure(pool, storyId, title, error, { cancelled = fa
  * back to the pool (or is rejected after 3 failed attempts) and the error carries storyTitle/attempts for the alert.
  * Checks that depend on no story (the voice) run BEFORE a story is claimed, so a configuration problem never burns stories.
  */
-async function produceFromPool({ pool, llm, generator, imageFit = null, workRoot = OUTPUT_DIR, env = process.env, signal = null, onStage = async () => {}, logger = console }) {
+async function produceOne({ pool, llm, generator, imageFit = null, workRoot = OUTPUT_DIR, env = process.env, signal = null, onStage = async () => {}, logger = console }) {
   const voice = (narrationCommand(env).match(/-m (\S+)/g) || []).pop().slice(3);
   let story = await pool.claimNext();
   if (!story) throw failure('STORY_POOL_EMPTY', 'the Dark History story pool is empty');
@@ -146,6 +146,24 @@ async function produceFromPool({ pool, llm, generator, imageFit = null, workRoot
     fs.rmSync(outDir, { recursive: true, force: true });
     throw error;
   }
+}
+
+/**
+ * produceOne for up to 3 stories in a row while the claimed story turns out to be permanently ineligible (too few distinct or fitting pictures:
+ * it is rejected at once and costs a few calls): the check does not wait two hours for the next story. Any other failure stops the check as before.
+ */
+async function produceFromPool(args) {
+  let last = null;
+  for (let i = 0; i < 3; i += 1) {
+    try {
+      return await produceOne(args);
+    } catch (error) {
+      if (!error.permanent || error.code === 'STORY_POOL_EMPTY') throw error;
+      last = error;
+      args.logger?.info?.(`Dark History: "${error.storyTitle}" is not eligible (${String(error.message).slice(0, 90)}); trying the next story`);
+    }
+  }
+  throw last;
 }
 
 /** Output folders older than OUTPUT_KEEP_DAYS (a Short is uploaded within hours of being made). */
