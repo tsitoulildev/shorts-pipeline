@@ -306,6 +306,19 @@ class AITextService {
       return this._generateWithFreePrimary(prompt, options, maxTokens, temperature);
     }
 
+    // preferFree: the free providers answer first and the primary (Gemini) only when every one of them failed. The Dark History writer asks this
+    // way: its first live day ran on gemini-3.5-flash-lite alone (the bigger Gemini models were out of quota) and 7 of 7 scripts were rejected,
+    // while Groq/NVIDIA/Mistral/OpenRouter wrote the Shorts that passed; Gemini stays free for the vision judges and the older system.
+    if (options.preferFree) {
+      const freeFirst = this._freeCandidates(options, maxTokens);
+      if (freeFirst.length) {
+        const failures = [];
+        const result = await this._runFreeChainPatient(freeFirst, prompt, maxTokens, temperature, failures);
+        if (result.ok) return result.text;
+        this.logger?.warn?.(`Every free text model failed, trying the primary provider: ${failures.join(' | ').slice(0, 300)}`);
+      }
+    }
+
     let primaryError = null;
     try {
       // A caller whose previous answer from the primary provider was unusable (e.g. a script that broke its
@@ -389,7 +402,10 @@ class AITextService {
   _freeCandidates(options = {}, maxTokens = options.maxTokens || 2048) {
     const providerIds = this.freeProviders || [];
     if (!providerIds.length) return [];
-    return getCandidates({ task: options.task, maxTokens, providerIds });
+    const all = getCandidates({ task: options.task, maxTokens, providerIds });
+    // avoidModel: the model whose previous answer was unusable goes last, so a retry is answered by another model when one exists
+    if (!options.avoidModel) return all;
+    return [...all.filter(item => item.model !== options.avoidModel), ...all.filter(item => item.model === options.avoidModel)];
   }
 
   async _generateWithFreePrimary(prompt, options, maxTokens, temperature) {
