@@ -158,7 +158,8 @@ async function produceFromPool(args) {
     try {
       return await produceOne(args);
     } catch (error) {
-      if (!error.permanent || error.code === 'STORY_POOL_EMPTY') throw error;
+      if (error.code === 'STORY_POOL_EMPTY') throw last || error; // the ineligible story is the reason of this check
+      if (!error.permanent) throw error;
       last = error;
       args.logger?.info?.(`Dark History: "${error.storyTitle}" is not eligible (${String(error.message).slice(0, 90)}); trying the next story`);
     }
