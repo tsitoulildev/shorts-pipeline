@@ -16,6 +16,8 @@ process.env.YOUTUBE_UPLOAD_ENABLED = 'true';
 process.env.LOCAL_TTS_COMMAND = '/opt/piper/bin/python3 -m piper -m en_US-ryan-high --data-dir /opt/voices --input-file {text} -f {wav}';
 delete process.env.DARK_HISTORY_LIVE;
 delete process.env.DARK_HISTORY_VOICE;
+// the VM's .env sets the pool horizon (10 days) and dotenv never overrides a set variable: the pool arithmetic below is written for the default 14 days
+process.env.DARK_HISTORY_POOL_HORIZON_DAYS = '14';
 
 const { Database } = require('../database/db');
 const { YouTubeAutomationAgent } = require('../index');
@@ -30,6 +32,7 @@ const { isLive, isDocumentary, buildProductionData } = require('../utils/dark-hi
 // index.js calls dotenv, which puts the keys of a local .env (the VM's) back into the environment: remove the vision key again AFTER the requires,
 // otherwise the footage check sends the stand-in pictures to the real Mistral model (found on the first deploy after the key was configured).
 delete process.env.MISTRAL_API_KEY;
+delete process.env.DARK_HISTORY_LIVE;
 const { attributionText } = require('../utils/dark-history/attribution');
 const { produceDocumentaryShort } = require('../utils/dark-history/produce');
 

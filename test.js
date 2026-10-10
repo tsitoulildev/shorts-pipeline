@@ -1,3 +1,7 @@
+// The VM's .env carries Dark History settings (DARK_HISTORY_LIVE=true, DARK_HISTORY_POOL_HORIZON_DAYS=10) and index.js loads it through dotenv, which never
+// overrides a variable that is already set: these tests exercise the default behaviour (flag off, 14-day pool horizon), so they are pinned here, before any require.
+process.env.DARK_HISTORY_LIVE = 'false';
+process.env.DARK_HISTORY_POOL_HORIZON_DAYS = '14';
 const { Database } = require('./database/db');
 const { Logger } = require('./utils/logger');
 const { CredentialManager } = require('./utils/credential-manager');
