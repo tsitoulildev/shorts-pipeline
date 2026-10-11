@@ -313,6 +313,7 @@ async function reviewedScriptLoop({ write, review, maxRevisions = MAX_REVISIONS,
   const error = new Error(`Creative review rejected the script after ${attempts.length} attempt(s): ${best.verdict.failures.join('; ') || 'no revision possible'} [${trail}]${writerNote}${editorText}`);
   error.code = 'CREATIVE_REVIEW_REJECTED';
   error.attempts = attempts;
+  error.reviewAttempts = attempts;
   throw error;
 }
 

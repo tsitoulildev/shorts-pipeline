@@ -20,6 +20,9 @@ assert.equal(classifyNote('beat 3: 26 words for 1 picture(s); keep it to 21 word
 assert.equal(classifyNote('remove semicolons and dashes; narration is spoken'), 'semicolons or dashes');
 assert.equal(classifyNote('Unexpected end of JSON input'), 'unusable reply');
 assert.deepEqual(causesOf({ message: 'x', attempts: [{ notes: ['beat 1: amount "Two" is not in its evidence || beat 2: the source does not support "y"'] }, { notes: ['use plain ASCII letters only'] }] }), ['number word not in evidence', 'sentence not supported', 'not plain ASCII']);
+// the real error: releaseAfterFailure replaces `attempts` by a number, the notes stay in `reviewAttempts` (a number there made every failure record nothing)
+assert.deepEqual(causesOf({ message: 'x', attempts: 2, reviewAttempts: [{ notes: ['beat 1: amount "Two" is not in its evidence'] }] }), ['number word not in evidence']);
+assert.deepEqual(causesOf({ message: 'Unexpected end of JSON input', attempts: 1 }), ['unusable reply']);
 assert.deepEqual(causesOf({ message: 'only 3 beats have a picture that shows what its passage describes' }), ['story not eligible (pictures)']);
 
 (async () => {
