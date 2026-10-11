@@ -206,7 +206,7 @@ async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3
       let draft;
       for (let tries = 1; !draft; tries += 1) {
         try {
-          draft = parseDraft(await ask(buildPrompt(story, brief, previous, shows), { maxTokens: 2200, temperature: brief ? 0.4 : 0.6 }), story);
+          draft = parseDraft(await ask(buildPrompt(story, brief, previous, shows), { maxTokens: 1600, temperature: brief ? 0.4 : 0.6 }), story);
         } catch (error) {
           if (tries >= 2 || !(error.cutOff || /no title.beats|JSON|Unexpected (token|end)|Unterminated|parse/i.test(error.message))) throw error;
           logger?.warn?.(`grounded writer: unusable reply (${error.message}); asking again`);

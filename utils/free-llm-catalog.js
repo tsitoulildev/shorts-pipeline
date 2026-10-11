@@ -55,20 +55,22 @@ const FREE_PROVIDERS = {
     envKey: 'GROQ_API_KEY',
     dataPolicy: DATA_POLICIES.UNSPECIFIED,
     tokenParam: 'max_completion_tokens',
-    // Free plan: 30 RPM, 1,000 RPD per model.
+    // Free plan: 30 RPM, 1,000 RPD per model, and token limits per minute that the live logs hit all the time: gpt-oss-120b 8,000 TPM,
+    // qwen3.8-27b 7,000 input and 1,000 output tokens per minute. `limits` feed the rate limiter, `maxCompletion` caps max_tokens, `headroom` is the reasoning
+    // allowance added to the answer budget and `extra` are request fields (gpt-oss: reasoning_effort low, so the hidden thinking stays small).
     tiers: {
       quality: [
-        { id: 'openai/gpt-oss-120b', maxOutput: 65000, reasoning: true },
-        { id: 'qwen/qwen3.8-27b', maxOutput: 16000, reasoning: true },
+        { id: 'openai/gpt-oss-120b', maxOutput: 65000, reasoning: true, headroom: 800, limits: { tpm: 8000 }, extra: { reasoning_effort: 'low' } },
+        { id: 'qwen/qwen3.8-27b', maxOutput: 16000, reasoning: true, headroom: 0, maxCompletion: 1000, limits: { itpm: 7000, otpm: 1000 } },
       ],
       balanced: [
-        { id: 'qwen/qwen3.8-27b', maxOutput: 16000, reasoning: true },
-        { id: 'openai/gpt-oss-20b', maxOutput: 65000, reasoning: true },
-        { id: 'openai/gpt-oss-120b', maxOutput: 65000, reasoning: true },
+        { id: 'qwen/qwen3.8-27b', maxOutput: 16000, reasoning: true, headroom: 0, maxCompletion: 1000, limits: { itpm: 7000, otpm: 1000 } },
+        { id: 'openai/gpt-oss-20b', maxOutput: 65000, reasoning: true, headroom: 800, extra: { reasoning_effort: 'low' } },
+        { id: 'openai/gpt-oss-120b', maxOutput: 65000, reasoning: true, headroom: 800, limits: { tpm: 8000 }, extra: { reasoning_effort: 'low' } },
       ],
       fast: [
-        { id: 'openai/gpt-oss-20b', maxOutput: 65000, reasoning: true },
-        { id: 'qwen/qwen3.8-27b', maxOutput: 16000, reasoning: true },
+        { id: 'openai/gpt-oss-20b', maxOutput: 65000, reasoning: true, headroom: 800, extra: { reasoning_effort: 'low' } },
+        { id: 'qwen/qwen3.8-27b', maxOutput: 16000, reasoning: true, headroom: 0, maxCompletion: 1000, limits: { itpm: 7000, otpm: 1000 } },
       ],
     },
   },
@@ -88,18 +90,12 @@ const FREE_PROVIDERS = {
     // Only the models that answered the realistic call stay; timeoutMs is per model (a slow model is dropped fast and the chain moves on).
     tiers: {
       quality: [
-        { id: 'moonshotai/kimi-k3', maxOutput: null, reasoning: true, timeoutMs: 40000 },
         { id: 'nvidia/nemotron-3-super-120b-a12b', maxOutput: 262000, reasoning: true, headroom: 6000, timeoutMs: 60000 },
-        { id: 'openai/gpt-oss-20b', maxOutput: 131000, reasoning: true, timeoutMs: 60000 },
       ],
       balanced: [
-        { id: 'moonshotai/kimi-k3', maxOutput: null, reasoning: true, timeoutMs: 40000 },
         { id: 'nvidia/nemotron-3-super-120b-a12b', maxOutput: 262000, reasoning: true, headroom: 6000, timeoutMs: 60000 },
-        { id: 'openai/gpt-oss-20b', maxOutput: 131000, reasoning: true, timeoutMs: 60000 },
       ],
       fast: [
-        { id: 'moonshotai/kimi-k3', maxOutput: null, reasoning: true, timeoutMs: 30000 },
-        { id: 'openai/gpt-oss-20b', maxOutput: 131000, reasoning: true, timeoutMs: 45000 },
         { id: 'nvidia/nemotron-3-super-120b-a12b', maxOutput: 262000, reasoning: true, headroom: 6000, timeoutMs: 45000 },
       ],
     },
@@ -128,11 +124,9 @@ const FREE_PROVIDERS = {
     },
     tiers: {
       quality: [
-        { id: 'mistral-medium-latest', maxOutput: null },
         { id: 'ministral-14b-latest', maxOutput: null },
       ],
       balanced: [
-        { id: 'mistral-medium-latest', maxOutput: null },
         { id: 'mistral-small-latest', maxOutput: null },
         { id: 'ministral-14b-latest', maxOutput: null },
       ],
@@ -242,7 +236,10 @@ function getCandidates({ task, maxTokens = 0, providerIds, env = process.env } =
         maxOutput: model.maxOutput || null,
         reasoning: model.reasoning === true,
         timeoutMs: model.timeoutMs || null,
-        headroom: model.headroom || null,
+        headroom: model.headroom ?? null,
+        maxCompletion: model.maxCompletion || null,
+        limits: model.limits || null,
+        extra: model.extra || null,
         tokenParam: provider.tokenParam,
         dataPolicy: provider.dataPolicy,
       });
@@ -254,7 +251,9 @@ function getCandidates({ task, maxTokens = 0, providerIds, env = process.env } =
 // Completion budget actually sent: reasoning models get headroom so hidden thinking
 // does not consume the visible answer, never above the documented output cap.
 function completionBudget(candidate, maxTokens) {
-  const wanted = candidate.reasoning ? maxTokens + (candidate.headroom || REASONING_HEADROOM_TOKENS) : maxTokens;
+  const headroom = candidate.headroom ?? REASONING_HEADROOM_TOKENS;
+  let wanted = candidate.reasoning ? maxTokens + headroom : maxTokens;
+  if (candidate.maxCompletion) wanted = Math.min(wanted, candidate.maxCompletion);
   return candidate.maxOutput ? Math.min(wanted, candidate.maxOutput) : wanted;
 }
 
