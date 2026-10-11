@@ -277,10 +277,11 @@ class DailyAutomation {
         }
         target = sustainable.perWeek;
       }
+      // Live: only Dark History Shorts count against the week (the stickman Shorts of the days before the switch made the count 16 of 15 and stopped production).
       const weeklyRows = await this.db.getAllRows(
         `SELECT details FROM generation_jobs
          WHERE status = 'completed'
-         AND created_at >= datetime('now', '-7 days')`
+         AND created_at >= datetime('now', '-7 days')${isLive() ? " AND style = 'documentary'" : ''}`
       );
       const completed = weeklyRows.filter(row => {
         try {
