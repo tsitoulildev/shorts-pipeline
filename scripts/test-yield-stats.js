@@ -22,8 +22,10 @@ assert.deepEqual(causesOf({ message: 'x', attempts: [{ notes: ['beat 1: amount "
 assert.deepEqual(causesOf({ message: 'only 3 beats have a picture that shows what its passage describes' }), ['story not eligible (pictures)']);
 
 (async () => {
-  const file = path.join(os.tmpdir(), `yield-${process.pid}.db`);
-  const db = new Database(file);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yield-'));
+  const file = path.join(dir, 'test.db');
+  const db = new Database();
+  db.dbPath = file; // never the project's own database
   await db.initialize();
   const stats = new YieldStats(db);
   await stats.llmEvent({ role: 'writer', provider: 'Groq', model: 'openai/gpt-oss-120b', outcome: 'ok' });
@@ -55,7 +57,7 @@ assert.deepEqual(causesOf({ message: 'only 3 beats have a picture that shows wha
   assert.equal(result.text, 'ok');
   assert.deepEqual(events.map(event => [event.role, event.model, event.outcome]), [['verifier', 'openai/gpt-oss-120b', 'rate_limited'], ['verifier', 'openai/gpt-oss-20b', 'ok']]);
   await db.close?.();
-  fs.rmSync(file, { force: true });
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   console.log('yield stats: ok');
   process.exit(0);
 })().catch(error => { console.error(error); process.exit(1); });
