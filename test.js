@@ -3546,8 +3546,8 @@ class SystemTest {
 
     // A model whose documented output cap is below the request is skipped.
     const small = catalog.getCandidates({ task: 'packaging', maxTokens: 1200, providerIds: ['nvidia'], env: {} });
-    const large = catalog.getCandidates({ task: 'packaging', maxTokens: 140000, providerIds: ['nvidia'], env: {} });
-    if (!small.some(item => item.model === 'openai/gpt-oss-20b') || large.some(item => item.model === 'openai/gpt-oss-20b')) {
+    const large = catalog.getCandidates({ task: 'packaging', maxTokens: 300000, providerIds: ['nvidia'], env: {} });
+    if (!small.some(item => item.model === 'nvidia/nemotron-3-super-120b-a12b') || large.some(item => item.model === 'nvidia/nemotron-3-super-120b-a12b')) {
       throw new Error('maxOutput is not enforced against the requested maxTokens');
     }
 
@@ -3700,14 +3700,17 @@ class SystemTest {
       const first = await service.generateText('write', { task: 'script', maxTokens: 2200 });
       if (first !== '{"ok":true}') throw new Error('<think> block was not stripped from a free provider response');
       if (calls.map(item => item.model).join() !== 'openai/gpt-oss-120b,qwen/qwen3.8-27b') throw new Error(`Unexpected model order: ${calls.map(item => item.model).join()}`);
-      if (calls[1].max_completion_tokens !== 2200 + 2048 || calls[1].max_tokens !== undefined) {
-        throw new Error('Groq reasoning models must get max_completion_tokens with headroom');
+      // qwen3.8-27b: 1,000 output tokens per minute on the free plan, so its request is capped there (gpt-oss models get 800 tokens of headroom instead of 2048)
+      if (calls[1].max_completion_tokens !== 1000 || calls[1].max_tokens !== undefined) {
+        throw new Error('Groq reasoning models must get max_completion_tokens, capped to the per-minute output limit');
       }
       calls.length = 0;
+      service.rateLimiter = null; // the calls of this test are seconds apart: the per-minute token window of the first one is not part of what is checked here
       await service.generateText('write', { task: 'script', maxTokens: 2200 });
       if (calls.length !== 1 || calls[0].model !== 'qwen/qwen3.8-27b') throw new Error('A cooling model was retried before its Retry-After elapsed');
 
       // OpenRouter free fallback uses max_tokens and only ":free" ids.
+      service.rateLimiter = null;
       const openRouterCalls = [];
       service.client.chat.completions.create = async () => { throw Object.assign(new Error('unavailable'), { status: 503 }); };
       service.freeClients.openrouter = { chat: { completions: { create: async params => { openRouterCalls.push(params); return reply('PACKAGED'); } } } };

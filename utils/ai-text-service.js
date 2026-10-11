@@ -1,6 +1,7 @@
 const OpenAI = require('openai');
 const { Logger } = require('./logger');
 const { CooldownTracker } = require('./llm-cooldown');
+const { RateLimiter } = require('./llm-rate-limiter');
 const {
   FREE_PROVIDERS,
   FREE_PROVIDER_ENV_KEYS,
@@ -392,6 +393,10 @@ class AITextService {
     throw new Error(`All configured text providers failed: ${failures.join(' | ')}`);
   }
 
+  _limiter() {
+    return this.rateLimiter || (this.rateLimiter = new RateLimiter());
+  }
+
   _cooldowns() {
     return this.cooldowns || (this.cooldowns = new CooldownTracker());
   }
@@ -484,13 +489,27 @@ class AITextService {
       const isPrimary = candidate.providerId === this.freePrimaryId;
       const client = isPrimary && this.client ? this.client : (this.freeClients || {})[candidate.providerId];
       const label = `${candidate.providerName} ${candidate.model}`;
+      // Token budget per minute of this provider:model (free plans): wait for it when the wait is short, otherwise go on to the next model.
+      const limiterKey = `${candidate.providerId}:${candidate.model}`;
+      const need = { input: Math.ceil(String(prompt).length / 3), output: completionBudget(candidate, maxTokens) };
+      const waitMs = this._limiter().waitMs(limiterKey, candidate.limits, need);
+      if (waitMs === Infinity || waitMs > FREE_CHAIN_MAX_WAIT_MS) {
+        skipped += 1;
+        failures.push(`${label}: no token budget (${waitMs === Infinity ? 'the request is larger than the per-minute limit' : `free in ${Math.round(waitMs / 1000)}s`})`);
+        this.limiterSkips = (this.limiterSkips || 0) + 1;
+        continue;
+      }
+      if (waitMs > 0) await this._sleep(waitMs);
+      this.lastUsage = null;
       const startedAt = Date.now();
       try {
         const text = await this._generateFree(client, candidate, prompt, maxTokens, temperature);
+        this._limiter().record(limiterKey, { input: this.lastUsage?.input ?? need.input, output: this.lastUsage?.output ?? need.output });
         tracker.recordSuccess(candidate.providerId, candidate.model, Date.now() - startedAt);
         this._logModelStats(tracker);
         return { ok: true, text };
       } catch (error) {
+        if (error?.status === 429 || error?.response?.status === 429) this._limiter().record(limiterKey, { input: need.input, output: 0 });
         const outcome = tracker.recordFailure(candidate.providerId, candidate.model, error, { isPrimary });
         this._logModelStats(tracker);
         // A rejected key on the primary provider must stay loud, never a silent failover.
@@ -516,11 +535,13 @@ class AITextService {
       messages: [{ role: 'user', content: prompt }],
       temperature,
       [candidate.tokenParam]: completionBudget(candidate, maxTokens),
+      ...(candidate.extra || {}),
     };
     // A per-model timeout (the catalog's timeoutMs) replaces the client-wide one: a slow model is dropped fast and the chain moves on.
     const response = candidate.timeoutMs
       ? await client.chat.completions.create(request, { timeout: candidate.timeoutMs })
       : await client.chat.completions.create(request);
+    this.lastUsage = { input: response?.usage?.prompt_tokens, output: response?.usage?.completion_tokens };
     const message = response?.choices?.[0]?.message || {};
     const finishReason = response?.choices?.[0]?.finish_reason || null;
     let content = typeof message.content === 'string' ? stripThinking(message.content) : '';

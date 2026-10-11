@@ -10,8 +10,8 @@ const make = ({ gemini, free }) => {
   const s = Object.create(AITextService.prototype);
   s.logger = { info() {}, warn() {} };
   s.cooldowns = new CooldownTracker();
-  s.freePrimaryId = null; s.fallbacks = []; s.freeProviders = ['nvidia']; s.gemini = {}; s.model = 'gemini-x'; s.providerName = 'Google Gemini';
-  s.freeClients = { nvidia: { chat: { completions: { create: async request => free(request) } } } };
+  s.freePrimaryId = null; s.fallbacks = []; s.freeProviders = ['groq']; s.gemini = {}; s.model = 'gemini-x'; s.providerName = 'Google Gemini';
+  s.freeClients = { groq: { chat: { completions: { create: async request => free(request) } } } };
   s._generateGeminiWithModelFallback = async () => gemini();
   return s;
 };
@@ -31,9 +31,9 @@ const ok = text => ({ choices: [{ message: { content: text }, finish_reason: 'st
   // avoidModel: the named model is tried last
   const order = [];
   const avoid = make({ gemini: () => 'g', free: request => { order.push(request.model); throw new Error('boom'); } });
-  await avoid._generateTextRouted('p', { task: 'script', preferFree: true, avoidModel: 'moonshotai/kimi-k3' }).catch(() => {});
-  assert.equal(order[order.length - 1], 'moonshotai/kimi-k3');
-  assert.notEqual(order[0], 'moonshotai/kimi-k3');
+  await avoid._generateTextRouted('p', { task: 'script', preferFree: true, avoidModel: 'openai/gpt-oss-120b' }).catch(() => {});
+  assert.equal(order[order.length - 1], 'openai/gpt-oss-120b');
+  assert.notEqual(order[0], 'openai/gpt-oss-120b');
 
   // the writer: a cut-off reply is retried on another model, free first
   const story = { article_url: 'https://en.wikipedia.org/wiki/X', attribution: 'a', plan: { title: 'X', extract: 'e', folder: '.', beats: [] } };

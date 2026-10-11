@@ -6,12 +6,14 @@ const { AITextService } = require('../utils/ai-text-service');
 const { FREE_PROVIDERS, getCandidates } = require('../utils/free-llm-catalog');
 
 // catalog: every NVIDIA tier lists only measured models and each carries a timeout
-const measured = new Set(['moonshotai/kimi-k3', 'nvidia/nemotron-3-super-120b-a12b', 'openai/gpt-oss-20b']);
+// kimi-k3 and gpt-oss-20b are out (0 live successes: timeouts); nemotron stays with a 6000-token reasoning headroom so it does not answer empty
+const measured = new Set(['nvidia/nemotron-3-super-120b-a12b']);
 for (const [tier, models] of Object.entries(FREE_PROVIDERS.nvidia.tiers)) {
-  assert.ok(models.length >= 2, `${tier} keeps at least two models`);
+  assert.ok(models.length >= 1, `${tier} keeps a model`);
   for (const model of models) {
     assert.ok(measured.has(model.id), `${model.id} was not measured as working`);
     assert.ok(model.timeoutMs >= 20000 && model.timeoutMs <= 60000, `${model.id} has a timeout`);
+    assert.ok(model.headroom >= 6000, `${model.id} has the reasoning headroom`);
   }
 }
 const candidates = getCandidates({ task: 'script', maxTokens: 2200, providerIds: ['nvidia'], env: {} });
