@@ -206,15 +206,18 @@ class AnalyticsOptimizationAgent {
       ids: 'channel==MINE',
       startDate,
       endDate,
-      metrics: 'views,impressions,impressionClickThroughRate',
+      // `impressions` and `impressionClickThroughRate` are not metrics of the YouTube Analytics API (they exist in Studio only): asking for them
+      // made every report fail with "Unknown identifier (impressions)" (22 of 22 measurements on 2026-10-11, right after the API was enabled).
+      metrics: 'views',
       dimensions: 'day',
       filters: `video==${videoId}`
     });
     
     return {
       totalViews: response.data.rows?.reduce((sum, row) => sum + row[1], 0) || 0,
-      totalImpressions: response.data.rows?.reduce((sum, row) => sum + row[2], 0) || 0,
-      averageCTR: this.calculateAverage(response.data.rows?.map(row => row[3]) || []),
+      totalImpressions: 0,
+      impressionsAvailable: false,
+      averageCTR: 0,
       dailyData: response.data.rows || []
     };
   }
