@@ -367,5 +367,16 @@ const fitOk = { judge: async () => JSON.stringify({ mismatch: [] }), readImage: 
     assert.strictEqual(norm("\u201cHe said\u201d \u2212 it\u2019s"), norm("\"he said\" - it's"));
     assert.notStrictEqual(norm("six men"), norm("five men"));
   }
+  // "two" and "2" are one number (both ways), a different number or an absent count still fails; formatting characters of the narration become plain ones
+  {
+    const { claimIssues } = require('../utils/dark-history/fact-check');
+    const { spokenForm } = require('../utils/dark-history/grounded-writer');
+    assert.deepStrictEqual(claimIssues('Two lions attacked the camp.', 'The 2 lions attacked nightly in 1898.', 'x'), []);
+    assert.deepStrictEqual(claimIssues('2 lions attacked the camp.', 'The two lions attacked nightly.', 'x'), []);
+    assert.match(claimIssues('Three lions attacked the camp.', 'The two lions attacked nightly.', 'x').join(), /Three/);
+    assert.match(claimIssues('Two lions attacked the camp.', 'A pair of lions attacked nightly.', 'x').join(), /Two/);
+    assert.strictEqual(spokenForm('The toll was 28\u201331; some said \u201cmore\u201d \u2014 it\u2019s unclear'), 'The toll was 28 to 31, some said "more", it\'s unclear');
+    assert.strictEqual(spokenForm('Andr\u00e9e left in 1897.'), 'Andr\u00e9e left in 1897.', 'letters are not changed (names must match the source)');
+  }
   console.log('dark-history writer tests passed');
 })().catch(error => { console.error(error); process.exit(1); });

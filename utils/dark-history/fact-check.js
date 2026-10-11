@@ -13,6 +13,10 @@ const MIN_EVIDENCE_WORDS = 5;
 const MIN_NARRATED_BEATS = 4;
 
 const digits = text => (String(text).match(/\d[\d,.]*\d|\d/g) || []).map(n => n.replace(/[,.]+$/, ''));
+// "two" and "2" are the same number: a count written as a word is supported by the digit in the evidence and the other way round (the value is still compared exactly).
+const WORD_VALUES = { two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+const wordsAsDigits = text => (String(text).toLowerCase().match(/\b[a-z]+\b/g) || []).filter(w => WORD_VALUES[w]).map(w => String(WORD_VALUES[w]));
+const hasNumber = (evidenceText, value) => digits(evidenceText).includes(String(value)) || wordsAsDigits(evidenceText).includes(String(value));
 
 /** Capitalised words that are not the first word of a sentence: names and places the source must contain. */
 function properNouns(narration) {
@@ -43,8 +47,8 @@ function closestSentence(claim, text) {
 /** Problems of one narration text against the proven evidence text (normalized) and the normalized article: numbers, amounts, names, quotations. */
 function claimIssues(narration, evidenceText, extract) {
   const problems = [];
-  for (const n of digits(narration)) if (!digits(evidenceText).includes(n)) problems.push(`number "${n}" is not in its evidence`);
-  for (const w of narration.match(NUMBER_WORDS) || []) if (!new RegExp(`\\b${w}\\b`, 'i').test(evidenceText)) problems.push(`amount "${w}" is not in its evidence`);
+  for (const n of digits(narration)) if (!hasNumber(evidenceText, n)) problems.push(`number "${n}" is not in its evidence`);
+  for (const w of narration.match(NUMBER_WORDS) || []) if (!new RegExp(`\b${w}\b`, 'i').test(evidenceText) && !digits(evidenceText).includes(String(WORD_VALUES[w.toLowerCase()]))) problems.push(`amount "${w}" is not in its evidence`);
   for (const noun of properNouns(narration)) if (!extract.includes(norm(noun))) problems.push(`"${noun}" does not appear in the source`);
   for (const quote of narration.match(/"([^"]{3,})"/g) || []) if (!extract.includes(norm(quote.slice(1, -1)))) problems.push(`invented quotation ${quote.slice(0, 60)}`);
   return problems;

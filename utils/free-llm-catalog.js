@@ -89,18 +89,18 @@ const FREE_PROVIDERS = {
     tiers: {
       quality: [
         { id: 'moonshotai/kimi-k3', maxOutput: null, reasoning: true, timeoutMs: 40000 },
-        { id: 'nvidia/nemotron-3-super-120b-a12b', maxOutput: 262000, reasoning: true, timeoutMs: 45000 },
+        { id: 'nvidia/nemotron-3-super-120b-a12b', maxOutput: 262000, reasoning: true, headroom: 6000, timeoutMs: 60000 },
         { id: 'openai/gpt-oss-20b', maxOutput: 131000, reasoning: true, timeoutMs: 60000 },
       ],
       balanced: [
         { id: 'moonshotai/kimi-k3', maxOutput: null, reasoning: true, timeoutMs: 40000 },
-        { id: 'nvidia/nemotron-3-super-120b-a12b', maxOutput: 262000, reasoning: true, timeoutMs: 45000 },
+        { id: 'nvidia/nemotron-3-super-120b-a12b', maxOutput: 262000, reasoning: true, headroom: 6000, timeoutMs: 60000 },
         { id: 'openai/gpt-oss-20b', maxOutput: 131000, reasoning: true, timeoutMs: 60000 },
       ],
       fast: [
         { id: 'moonshotai/kimi-k3', maxOutput: null, reasoning: true, timeoutMs: 30000 },
         { id: 'openai/gpt-oss-20b', maxOutput: 131000, reasoning: true, timeoutMs: 45000 },
-        { id: 'nvidia/nemotron-3-super-120b-a12b', maxOutput: 262000, reasoning: true, timeoutMs: 30000 },
+        { id: 'nvidia/nemotron-3-super-120b-a12b', maxOutput: 262000, reasoning: true, headroom: 6000, timeoutMs: 45000 },
       ],
     },
   },
@@ -242,6 +242,7 @@ function getCandidates({ task, maxTokens = 0, providerIds, env = process.env } =
         maxOutput: model.maxOutput || null,
         reasoning: model.reasoning === true,
         timeoutMs: model.timeoutMs || null,
+        headroom: model.headroom || null,
         tokenParam: provider.tokenParam,
         dataPolicy: provider.dataPolicy,
       });
@@ -253,7 +254,7 @@ function getCandidates({ task, maxTokens = 0, providerIds, env = process.env } =
 // Completion budget actually sent: reasoning models get headroom so hidden thinking
 // does not consume the visible answer, never above the documented output cap.
 function completionBudget(candidate, maxTokens) {
-  const wanted = candidate.reasoning ? maxTokens + REASONING_HEADROOM_TOKENS : maxTokens;
+  const wanted = candidate.reasoning ? maxTokens + (candidate.headroom || REASONING_HEADROOM_TOKENS) : maxTokens;
   return candidate.maxOutput ? Math.min(wanted, candidate.maxOutput) : wanted;
 }
 

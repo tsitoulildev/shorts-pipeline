@@ -30,7 +30,7 @@ HOW IT SHOULD SOUND
 HARD RULES (a fact-checker rejects the whole script if one is broken):
 - Write exactly ${story.plan.beats.length} entries, one per source passage below, in order. You may skip a passage that adds nothing to the story: write {"skip":true} for it and its picture is left out (skip at most one passage; at least 4 beats must stay narrated, and the story must still make sense in order). ${WORDS.beatMin}-${WORDS.beatMax} spoken words per beat, ${WORDS.min}-${WORDS.max} words in total (the voice speaks about two words a second and the Short must stay under 60 seconds).
 - Narrate ONLY what is stated in the source. No invented detail, emotion, motive, dialogue, name, number or place. A theory must be attributed ("investigators suspected...").
-- Every beat lists "evidence": 1-3 sentences copied VERBATIM from the source (at least 5 words each) that support the narration. Numbers, years and names in the narration must appear in that evidence. Write every number, year and date as digits exactly as the evidence has them (1872, not "eighteen seventy-two"; December 4, not "the fourth"), and never state a number that is not in that beat's own evidence. Copy each evidence sentence COMPLETE, from its first capital letter to its full stop: never shorten it, never join pieces with "...", and prefer a shorter sentence over cutting a long one. Keep the source's quotation marks exactly: a double quote inside the evidence is written as \\" in the JSON, never turned into a single quote. When the hook uses a sentence of the article lead, copy that lead sentence into beat 1's evidence too.
+- Every beat lists "evidence": 1-3 sentences copied VERBATIM from the source (at least 5 words each) that support the narration. Numbers, years and names in the narration must appear in that evidence. Write every number, year and date as digits exactly as the evidence has them (1872, not "eighteen seventy-two"; December 4, not "the fourth"), and never state a number that is not in that beat's own evidence. A count written as a word (two, eight, twenty) follows the same rule: write it only when that word or its digit is in that beat's evidence, otherwise leave the count out. Copy each evidence sentence COMPLETE, from its first capital letter to its full stop: never shorten it, never join pieces with "...", and prefer a shorter sentence over cutting a long one. Keep the source's quotation marks exactly: a double quote inside the evidence is written as \\" in the JSON, never turned into a single quote. When the hook uses a sentence of the article lead, copy that lead sentence into beat 1's evidence too.
 - Short sentences (under 20 words), no semicolons or dashes, plain ASCII. Past tense. Never mention drawings, animation or the video.
 
 ARTICLE LEAD (for the hook): ${String(story.plan.extract || '').slice(0, 600)}
@@ -144,6 +144,20 @@ async function reviewGrounded(script, story, verify, imageFit = null, { repair =
   return { overall: Number(overall.toFixed(2)), passed: accepted && overall >= PASS_SCORE, failures, notes: [...facts.issues, ...fit.issues, ...prose], source: 'fact-check+images+prose', facts, ...(repaired ? { repairedByDeletion: repaired } : {}), imageFit: { passed: fit.passed, checkedBeats: fit.checkedBeats } };
 }
 
+/**
+ * Formatting only, never the content: typographic quotes, dashes, the ellipsis character and semicolons are what the prose rules reject ("plain ASCII", "no
+ * semicolons or dashes") and what the models keep writing, so they become their plain forms before the check (a range between digits becomes "to").
+ * Evidence is never touched (it must stay verbatim) and letters are left alone (names must still match the source).
+ */
+function spokenForm(text) {
+  return String(text || '')
+    .replace(/[\u2018\u2019\u201a\u2032]/g, "'").replace(/[\u201c\u201d\u201e\u2033]/g, '"').replace(/\u2026/g, '...')
+    .replace(/[\u00a0\u2007\u202f]/g, ' ').replace(/[\u2010\u2011\u2012]/g, '-')
+    .replace(/(\d)\s*[\u2013\u2014-]\s*(\d)/g, '$1 to $2')
+    .replace(/\s*[\u2013\u2014\u2015;]\s*/g, ', ')
+    .replace(/,\s*,/g, ',').replace(/\s+/g, ' ').trim();
+}
+
 function parseDraft(reply, story) {
   const parsed = parseJsonResponse(reply);
   if (!parsed?.title || !Array.isArray(parsed.beats)) throw new Error('writer returned no title/beats');
@@ -151,7 +165,7 @@ function parseDraft(reply, story) {
     ? { heading: story.plan.beats[i]?.heading, skip: true, narration: '', evidence: [], images: story.plan.beats[i]?.images || [] }
     : {
       heading: story.plan.beats[i]?.heading,
-      narration: String(b.narration || '').trim(),
+      narration: spokenForm(b.narration),
       evidence: (Array.isArray(b.evidence) ? b.evidence : []).map(e => String(e).trim()).filter(Boolean),
       images: story.plan.beats[i]?.images || []
     }));
@@ -219,4 +233,4 @@ async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3
   return script;
 }
 
-module.exports = { repairByDeletion, writeGroundedScript, storyForScript, reviewGrounded, buildPrompt, buildDescription, proseIssues, parseDraft, affectedBeats };
+module.exports = { spokenForm, repairByDeletion, writeGroundedScript, storyForScript, reviewGrounded, buildPrompt, buildDescription, proseIssues, parseDraft, affectedBeats };
