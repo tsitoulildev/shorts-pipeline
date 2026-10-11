@@ -8,7 +8,7 @@ const { attributionText } = require('./attribution');
 const { checkImageFit, describePictures, makeVisionJudge } = require('./image-fit');
 
 // ljspeech speaks about 2 words a second (measured on the VM: 132 words = 64.7 s); the gate allows 60 s
-const WORDS = { min: 70, max: 100, beatMin: 9, beatMax: 18 };
+const WORDS = { min: 70, max: 100, beatMin: 9, beatMax: 18, perPictureMax: 21 }; // perPictureMax: a picture is shown for at most 9 s (+0.6): at about 2.1 spoken words a second that is 21 words
 const PASS_SCORE = 7;
 const ART_STYLE = /\b(stick ?man|stick figure|stickmen|animation|cartoon|drawing)\b/i;
 const YT_DESCRIPTION_LIMIT = 4900;
@@ -137,6 +137,8 @@ function proseIssues(script) {
   if (ART_STYLE.test(all)) notes.push('the narration names the visual style; never do that');
   if (/[^\t\n\r -~]/.test(all)) notes.push('use plain ASCII letters only');
   script.beats.forEach((b, i) => { if (!b.skip && wordCount(b.narration) < 8) notes.push(`beat ${i + 1} is too thin (${wordCount(b.narration)} words)`); });
+  // The documentary gate holds a picture to 9 s; a beat that talks longer than its pictures can be shown fails there (after the voice and the render were paid for): said now, so the beat is shortened.
+  script.beats.forEach((b, i) => { const limit = WORDS.perPictureMax * Math.max(1, (b.images || []).length); if (!b.skip && wordCount(b.narration) > limit) notes.push(`beat ${i + 1}: ${wordCount(b.narration)} words for ${Math.max(1, (b.images || []).length)} picture(s); keep it to ${limit} words or fewer (a picture stays on screen at most 9 seconds)`); });
   return notes;
 }
 
