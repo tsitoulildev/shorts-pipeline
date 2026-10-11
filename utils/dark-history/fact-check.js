@@ -48,7 +48,7 @@ function closestSentence(claim, text) {
 function claimIssues(narration, evidenceText, extract) {
   const problems = [];
   for (const n of digits(narration)) if (!hasNumber(evidenceText, n)) problems.push(`number "${n}" is not in its evidence`);
-  for (const w of narration.match(NUMBER_WORDS) || []) if (!new RegExp(`\b${w}\b`, 'i').test(evidenceText) && !digits(evidenceText).includes(String(WORD_VALUES[w.toLowerCase()]))) problems.push(`amount "${w}" is not in its evidence`);
+  for (const w of narration.match(NUMBER_WORDS) || []) if (!new RegExp(`\\b${w}\\b`, 'i').test(evidenceText) && !digits(evidenceText).includes(String(WORD_VALUES[w.toLowerCase()]))) problems.push(`amount "${w}" is not in its evidence`);
   for (const noun of properNouns(narration)) if (!extract.includes(norm(noun))) problems.push(`"${noun}" does not appear in the source`);
   for (const quote of narration.match(/"([^"]{3,})"/g) || []) if (!extract.includes(norm(quote.slice(1, -1)))) problems.push(`invented quotation ${quote.slice(0, 60)}`);
   return problems;

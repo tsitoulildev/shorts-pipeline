@@ -373,6 +373,10 @@ const fitOk = { judge: async () => JSON.stringify({ mismatch: [] }), readImage: 
     const { spokenForm } = require('../utils/dark-history/grounded-writer');
     assert.deepStrictEqual(claimIssues('Two lions attacked the camp.', 'The 2 lions attacked nightly in 1898.', 'x'), []);
     assert.deepStrictEqual(claimIssues('2 lions attacked the camp.', 'The two lions attacked nightly.', 'x'), []);
+    // a number word that IS in the evidence passes (a broken word-boundary regex in #35 flagged every one of them and blocked a finished Short at upload)
+    assert.deepStrictEqual(claimIssues('Two widows sued for a 1.5 million dollar claim.', 'Two widows of crewmen filed a 1.5 million lawsuit.', 'x'), []);
+    assert.deepStrictEqual(claimIssues('The loss was twenty million.', 'The value was twenty million dollars.', 'x'), []);
+    assert.deepStrictEqual(claimIssues('Nine men went ashore.', 'Nine men went ashore in the morning.', 'x'), []);
     assert.match(claimIssues('Three lions attacked the camp.', 'The two lions attacked nightly.', 'x').join(), /Three/);
     assert.match(claimIssues('Two lions attacked the camp.', 'A pair of lions attacked nightly.', 'x').join(), /Two/);
     assert.strictEqual(spokenForm('The toll was 28\u201331; some said \u201cmore\u201d \u2014 it\u2019s unclear'), 'The toll was 28 to 31, some said "more", it\'s unclear');
