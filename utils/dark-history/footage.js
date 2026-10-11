@@ -7,7 +7,10 @@ const { searchImages, imagesByTitle, licenseRank } = require('./commons');
 const STOP = new Set('the a an and or of in on at to for from by with was were is are be been as it its this that these those he she they his her their had has have not but which who whom after before during into over under about than then also one two first last new'.split(' '));
 const MIN_SECTION_CHARS = 300;
 const MAX_BEAT_CHARS = 1800;
-const CANDIDATE_BEATS = 12;
+// Passages looked at per story (sampled evenly from the article's substantial sections) and search results screened per passage. 18 of the 22 stories the pool entrance refused
+// had footage for 3 of N passages (one short of the 4 needed): more passages and a few more screened candidates find the fourth without relaxing what an image must show.
+const CANDIDATE_BEATS = Number(process.env.DARK_HISTORY_CANDIDATE_BEATS) || 16;
+const SCREENED_PER_BEAT = Number(process.env.DARK_HISTORY_SCREENED_PER_BEAT) || 6;
 const SPLIT_BELOW = 6; // fewer sections than this: split long sections into chunks
 // words of an article title that say what KIND of story it is, not what it is about ("Tunguska event" -> tunguska)
 const GENERIC_SUBJECT = new Set('incident event events disaster murders murder massacre expedition great sinking wreck case colony fire flood'.split(' '));
@@ -153,7 +156,7 @@ async function planFootage(title, { http = defaultHttp, judge = null, article: f
       const ownedTitles = new Set(owned.map(o => o.c.title));
       const screened = [...found.values()].filter(c => !ownedTitles.has(c.title))
         .map(c => ({ c, score: relevance(c, beat, subjectTerms, false, weight) })).filter(o => o.score > 0)
-        .sort((a, b) => b.score - a.score).slice(0, 5);
+        .sort((a, b) => b.score - a.score).slice(0, SCREENED_PER_BEAT);
       const approved = new Set((await judge(beat, screened.map(o => o.c), { subject: article.title })).map(c => c.title));
       note.screened = screened.map(o => o.c.title);
       note.approved = [...approved];
