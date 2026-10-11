@@ -28,6 +28,7 @@ const { AITextService } = require('./utils/ai-text-service');
 const { AgentContractService } = require('./utils/agent-contract-service');
 const { DiscoverabilityService } = require('./utils/discoverability-service');
 const { resolveControlState, publicationState, recordUploadAuthorization } = require('./utils/publishing-policy');
+const { YieldStats } = require('./utils/dark-history/yield-stats');
 const { isLive, isDocumentary, produceFromPool, releaseAfterFailure, PIPELINE: DOCUMENTARY_PIPELINE } = require('./utils/dark-history/live');
 const { StoryPool } = require('./utils/dark-history/story-pool');
 const { version } = require('./package.json');
@@ -138,6 +139,8 @@ class YouTubeAutomationAgent {
       // Show which pipeline stages will run for real vs. be simulated
       await this.logCapabilitySummary();
       
+      this.attachYieldStats();
+
       // Setup API endpoints
       this.setupAPI();
       
@@ -587,6 +590,15 @@ class YouTubeAutomationAgent {
             videoProviders: this.agents.production?.aiVideoGenerator?.mediaGeneration?.listProviders() || []
           }
         });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // Dark History yield: jobs per day and source, results per role and model, histogram of the rejection causes (last `days` days, default 7).
+    this.app.get('/api/dark-history/report', this.requireAPIKey(), async (req, res) => {
+      try {
+        res.json(await this.getYieldStats().report(Math.max(1, Math.min(60, Number(req.query.days) || 7))));
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
@@ -1932,6 +1944,19 @@ class YouTubeAutomationAgent {
     });
   }
 
+  getYieldStats() {
+    if (!this.yieldStats) this.yieldStats = new YieldStats(this.db);
+    return this.yieldStats;
+  }
+
+  /** Every text service of the agents reports its per-role, per-model results to the Dark History statistics (never throws into a request). */
+  attachYieldStats() {
+    const stats = this.getYieldStats();
+    const services = new Set(Object.values(this.agents || {}).map(agent => agent?.aiTextService).filter(Boolean));
+    for (const service of services) service.statsSink = event => stats.llmEvent(event).catch(() => {});
+    return services.size;
+  }
+
   getStoryPool() {
     if (!this.storyPool) this.storyPool = new StoryPool(this.db);
     return this.storyPool;
@@ -1973,6 +1998,7 @@ class YouTubeAutomationAgent {
   async generateDocumentaryContent({ jobId = null, abortSignal = null } = {}) {
     await this.assertJobMayContinue(jobId, 'strategy');
     const pool = this.getStoryPool();
+    this.attachYieldStats();
     const llm = this.agents.strategy?.aiTextService || this.agents.scriptWriter?.aiTextService;
     let storyId = null;
     let title = null;
@@ -2040,6 +2066,7 @@ class YouTubeAutomationAgent {
     } catch (error) {
       // produceFromPool already returned the story for its own failures; a failure after it (gates, schedule) is released here
       if (storyId && error.attempts === undefined) await releaseAfterFailure(pool, storyId, title, error);
+      if (!['AUTOMATION_PAUSED', 'JOB_CANCELLED'].includes(error.code)) await this.getYieldStats().jobFailure(error).catch(() => {});
       await this.alertDocumentaryFailure(error, jobId);
       error.alerted = true;
       throw error;

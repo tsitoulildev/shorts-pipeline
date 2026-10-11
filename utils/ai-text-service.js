@@ -314,7 +314,7 @@ class AITextService {
       const freeFirst = this._freeCandidates(options, maxTokens);
       if (freeFirst.length) {
         const failures = [];
-        const result = await this._runFreeChainPatient(freeFirst, prompt, maxTokens, temperature, failures);
+        const result = await this._runFreeChainPatient(freeFirst, prompt, maxTokens, temperature, failures, { role: options.role });
         if (result.ok) return result.text;
         this.logger?.warn?.(`Every free text model failed, trying the primary provider: ${failures.join(' | ').slice(0, 300)}`);
       }
@@ -330,13 +330,15 @@ class AITextService {
         throw Object.assign(new Error('primary provider skipped for this attempt (unavailable)'), { status: 503 });
       }
       if (this.gemini) {
-        return await this._generateGeminiWithModelFallback(
+        const answer = await this._generateGeminiWithModelFallback(
           this.gemini,
           this.providerName || 'Google Gemini',
           model,
           prompt,
           options
         );
+        this._stat(options.role, 'Google Gemini', this.lastCall?.model || model, 'ok');
+        return answer;
       }
       if (this.client) {
         return await this._generateOpenAICompatible(
@@ -351,6 +353,7 @@ class AITextService {
       throw new Error('No AI text provider configured');
     } catch (error) {
       primaryError = error;
+      if (this.gemini && !options.skipPrimary) this._stat(options.role, 'Google Gemini', model, /429|quota|exhaust/i.test(String(error.message)) ? 'rate_limited' : /timed out/i.test(String(error.message)) ? 'timeout' : 'failed');
     }
 
     const freeCandidates = this._freeCandidates(options, maxTokens);
@@ -387,10 +390,15 @@ class AITextService {
       }
     }
 
-    const result = await this._runFreeChainPatient(freeCandidates, prompt, maxTokens, temperature, failures);
+    const result = await this._runFreeChainPatient(freeCandidates, prompt, maxTokens, temperature, failures, { role: options.role });
     if (result.ok) return result.text;
 
     throw new Error(`All configured text providers failed: ${failures.join(' | ')}`);
+  }
+
+  // Reports one result of a model to the sink (set by the application: per day, role and model); never throws into the request.
+  _stat(role, provider, model, outcome) {
+    try { Promise.resolve(this.statsSink?.({ role, provider, model, outcome })).catch(() => {}); } catch (_error) { /* statistics never break a request */ }
   }
 
   _limiter() {
@@ -439,7 +447,7 @@ class AITextService {
     }
 
     const failures = [];
-    const result = await this._runFreeChainPatient(candidates, prompt, maxTokens, temperature, failures);
+    const result = await this._runFreeChainPatient(candidates, prompt, maxTokens, temperature, failures, { role: options.role });
     if (result.ok) return result.text;
     if (result.lastError && failures.length === 1) throw result.lastError;
     throw new Error(`All configured text providers failed: ${failures.join(' | ')}`);
@@ -452,8 +460,8 @@ class AITextService {
   // Free plans limit tokens per minute, and the error says when to retry (often 1-15 s). When every candidate
   // failed and the shortest cooldown is that short, wait for it once instead of giving up on the whole chain
   // (the script writer then fell back to its emergency script although Groq would have answered a few seconds later).
-  async _runFreeChainPatient(candidates, prompt, maxTokens, temperature, failures) {
-    const result = await this._runFreeChain(candidates, prompt, maxTokens, temperature, failures);
+  async _runFreeChainPatient(candidates, prompt, maxTokens, temperature, failures, meta = {}) {
+    const result = await this._runFreeChain(candidates, prompt, maxTokens, temperature, failures, meta);
     if (result.ok) return result;
     const tracker = this._cooldowns();
     const waits = candidates
@@ -465,7 +473,7 @@ class AITextService {
     if (wait > FREE_CHAIN_MAX_WAIT_MS) return result;
     this.logger?.info?.(`All free text models are rate-limited; waiting ${Math.round(wait / 100) / 10}s for the first to recover`);
     await this._sleep(wait + 250);
-    return this._runFreeChain(candidates, prompt, maxTokens, temperature, failures);
+    return this._runFreeChain(candidates, prompt, maxTokens, temperature, failures, meta);
   }
 
   // One line with the per-model numbers every 25 free-model calls (successes, timeouts, empty answers, rate limits, average time of a success).
@@ -476,7 +484,7 @@ class AITextService {
     this.logger?.info?.(`Free model statistics: ${line}`);
   }
 
-  async _runFreeChain(candidates, prompt, maxTokens, temperature, failures) {
+  async _runFreeChain(candidates, prompt, maxTokens, temperature, failures, meta = {}) {
     const tracker = this._cooldowns();
     let lastError = null;
     let skipped = 0;
@@ -506,11 +514,13 @@ class AITextService {
         const text = await this._generateFree(client, candidate, prompt, maxTokens, temperature);
         this._limiter().record(limiterKey, { input: this.lastUsage?.input ?? need.input, output: this.lastUsage?.output ?? need.output });
         tracker.recordSuccess(candidate.providerId, candidate.model, Date.now() - startedAt);
+        this._stat(meta.role, candidate.providerName, candidate.model, 'ok');
         this._logModelStats(tracker);
         return { ok: true, text };
       } catch (error) {
         if (error?.status === 429 || error?.response?.status === 429) this._limiter().record(limiterKey, { input: need.input, output: 0 });
         const outcome = tracker.recordFailure(candidate.providerId, candidate.model, error, { isPrimary });
+        this._stat(meta.role, candidate.providerName, candidate.model, outcome.action === 'rate-limited' || outcome.action === 'daily-quota' ? 'rate_limited' : String(error.code).toUpperCase() === 'AI_EMPTY_RESPONSE' ? 'empty' : (error.code === 'ETIMEDOUT' || /timed out|timeout/i.test(String(error.message))) ? 'timeout' : 'failed');
         this._logModelStats(tracker);
         // A rejected key on the primary provider must stay loud, never a silent failover.
         if (outcome.action === 'auth-error') throw error;

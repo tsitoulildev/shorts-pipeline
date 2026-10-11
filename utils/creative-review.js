@@ -279,7 +279,7 @@ async function reviewedScriptLoop({ write, review, maxRevisions = MAX_REVISIONS,
       break;
     }
     const verdict = await review(script);
-    attempts.push({ attempt: attempt + 1, overall: verdict.overall, passed: verdict.passed, source: verdict.source, failures: verdict.failures });
+    attempts.push({ attempt: attempt + 1, overall: verdict.overall, passed: verdict.passed, source: verdict.source, failures: verdict.failures, notes: (verdict.notes || []).slice(0, 12).map(note => String(note).slice(0, 300)) });
     logger?.info?.(`Creative review attempt ${attempt + 1}: ${verdict.overall}/10 [${verdict.source}${script.metadata?.generationSource ? `, writer ${script.metadata.generationSource}` : ''}] ${verdict.passed ? 'passed' : `rejected (${verdict.failures.join('; ')})`}`);
     // The editor's reasons are what decides whether the premise, the writer or the gate needs work; keep them in the log.
     if (!verdict.passed && Array.isArray(verdict.notes) && verdict.notes.length) {

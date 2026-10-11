@@ -194,7 +194,7 @@ async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3
   // retry goes to another model than the one that produced it.
   let lastModel = null;
   const ask = async (prompt, options) => {
-    const reply = await llm.generateText(prompt, { task: 'script', responseMimeType: 'application/json', preferFree: true, avoidModel: lastModel, ...options });
+    const reply = await llm.generateText(prompt, { task: 'script', role: 'writer', responseMimeType: 'application/json', preferFree: true, avoidModel: lastModel, ...options });
     lastModel = llm.lastCall?.model || lastModel;
     if (/^(length|max_tokens)$/i.test(String(llm.lastCall?.finishReason || ''))) throw Object.assign(new Error(`the reply was cut off by the token limit (${lastModel})`), { cutOff: true });
     return reply;
@@ -221,7 +221,7 @@ async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3
       previous = draft;
       return draft;
     },
-    review: draft => reviewGrounded(draft, story, prompt => ask(prompt, { task: 'packaging', maxTokens: 400, temperature: 0 }), fitOptions, { repair })
+    review: draft => reviewGrounded(draft, story, prompt => ask(prompt, { task: 'packaging', role: 'verifier', maxTokens: 400, temperature: 0 }), fitOptions, { repair })
   });
   // Skipped beats leave the script (and the story's footage and credits) here, so everything downstream sees one beat per picture.
   script.sourceBeatIndexes = script.beats.map((b, i) => (b.skip ? null : i)).filter(i => i !== null);
