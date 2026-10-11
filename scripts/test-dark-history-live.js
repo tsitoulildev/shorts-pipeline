@@ -60,7 +60,7 @@ async function makeStory(dir, title = 'Mary Celeste', { duplicates = 0, base = 4
     const file = `${sha256.slice(0, 16)}.png`;
     fs.renameSync(raw, path.join(folder, file));
     beats.push({
-      heading: `Beat ${i + 1}`, text: SENTENCES[i] || SENTENCES[0],
+      heading: `Beat ${i + 1}`, text: [SENTENCES[i] || SENTENCES[0], 'The record of this part continues with further plain detail.', 'Other sources describe the same part of the story at length.'].join(' '), // 3 citable sentences: the readiness check before the writer needs them
       images: [{ title: `${title} photo ${i + 1}.png`, file, sha256, width: dims[i][0], height: dims[i][1], mime: 'image/png', license: i === 1 ? 'CC BY 4.0' : 'Public domain', author: i === 1 ? 'A. Photographer' : null,
         descriptionUrl: `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(title)}_photo_${i + 1}.png`, fileUrl: `https://upload.wikimedia.org/wikipedia/commons/${i}/photo${i + 1}.png`, licenseUrl: null }]
     });
@@ -274,12 +274,14 @@ function makeLlm(mode = { writer: 'ok' }) {
     await addToPool(pool, await makeStory(dir, 'Failing Story'));
     const agent = makeAgent({ llm: makeLlm({ writer: 'garbage' }) });
     for (let attempt = 1; attempt <= 3; attempt += 1) {
+      // after the second failure the story is parked; it is taken again only after 24 h (and only because nothing else is ready)
+      if (attempt === 3) await db.executeQuery("UPDATE story_pool SET used_at = datetime('now', '-25 hours') WHERE title = 'Failing Story' AND status = 'quarantine'");
       const job = await agent.queueScheduledContent({ source: 'scheduler' });
       const done = await agent.waitForGenerationJob(job.id);
       assert.strictEqual(done.status, 'failed');
       assert.match(done.error, /no title\/beats|JSON/i, 'the job keeps the real cause');
       const row = await db.getRow("SELECT status, attempts FROM story_pool WHERE title = 'Failing Story'");
-      assert.deepStrictEqual([row.status, row.attempts], [attempt < 3 ? 'ready' : 'rejected', attempt]);
+      assert.deepStrictEqual([row.status, row.attempts], [['ready', 'quarantine', 'rejected'][attempt - 1], attempt]);
       assert.strictEqual(await db.getSetting('last_content_generation'), before, 'a failure does not move the pacing clock');
     }
     assert.deepStrictEqual(fiction, [], 'a failed Dark History production never falls back to the old pipeline');

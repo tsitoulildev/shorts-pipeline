@@ -6,6 +6,9 @@ const crypto = require('crypto');
 const TARGET_DAYS = Number(process.env.DARK_HISTORY_POOL_HORIZON_DAYS) > 0 ? Number(process.env.DARK_HISTORY_POOL_HORIZON_DAYS) : 14;
 // a story whose production failed this many times is rejected for good (with the last reason) instead of looping every tick
 const MAX_ATTEMPTS = 3;
+// after this many failures a story is parked ('quarantine') and only taken again when no fresh story is left and QUARANTINE_HOURS have passed
+const QUARANTINE_AFTER = 2;
+const QUARANTINE_HOURS = 24;
 
 /** Days of content the ready stories cover at the given cadence (stories per week). */
 const poolDays = (ready, perWeek) => (perWeek > 0 ? (ready * 7) / perWeek : Infinity);
@@ -56,12 +59,21 @@ class StoryPool {
     return (await this.db.getRow("SELECT COUNT(*) AS n FROM story_pool WHERE status = 'ready'")).n;
   }
 
-  /** Oldest ready story, atomically marked used. null when the pool is empty. */
+  /**
+   * The next story, atomically marked used: ready stories first (fewest failed attempts, richest material, oldest), then a quarantined story that has waited
+   * QUARANTINE_HOURS. null when there is nothing to take.
+   */
   async claimNext() {
     await this.ensure();
-    const row = await this.db.getRow("SELECT * FROM story_pool WHERE status = 'ready' ORDER BY attempts, created_at, rowid LIMIT 1");
+    let row;
+    try {
+      row = await this.db.getRow("SELECT * FROM story_pool WHERE status = 'ready' ORDER BY attempts, COALESCE(json_extract(plan, '$.richness'), 0) DESC, created_at, rowid LIMIT 1");
+    } catch (_error) { // an SQLite without JSON1: the order without the richness
+      row = await this.db.getRow("SELECT * FROM story_pool WHERE status = 'ready' ORDER BY attempts, created_at, rowid LIMIT 1");
+    }
+    if (!row) row = await this.db.getRow("SELECT * FROM story_pool WHERE status = 'quarantine' AND used_at <= datetime('now', ?) ORDER BY attempts, used_at, rowid LIMIT 1", ['-' + QUARANTINE_HOURS + ' hours']);
     if (!row) return null;
-    const { changes } = await this.db.executeQuery("UPDATE story_pool SET status = 'used', used_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'ready'", [row.id]);
+    const { changes } = await this.db.executeQuery("UPDATE story_pool SET status = 'used', used_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('ready', 'quarantine')", [row.id]);
     return changes ? { ...row, plan: JSON.parse(row.plan), share_alike: Boolean(row.share_alike) } : this.claimNext();
   }
 
@@ -75,10 +87,12 @@ class StoryPool {
     if (!row) return null;
     const attempts = (row.attempts || 0) + (countAttempt ? 1 : 0);
     const rejected = attempts >= maxAttempts;
+    const parked = !rejected && attempts >= QUARANTINE_AFTER;
     const text = String(reason || '').replace(/\s+/g, ' ').slice(0, 300);
-    await this.db.executeQuery('UPDATE story_pool SET status = ?, attempts = ?, reason = ?, used_at = NULL WHERE id = ?',
-      [rejected ? 'rejected' : 'ready', attempts, rejected ? `production failed ${attempts} times, last: ${text}` : (text || null), id]);
-    return { status: rejected ? 'rejected' : 'ready', attempts };
+    const status = rejected ? 'rejected' : parked ? 'quarantine' : 'ready';
+    await this.db.executeQuery(`UPDATE story_pool SET status = ?, attempts = ?, reason = ?, used_at = ${parked ? 'CURRENT_TIMESTAMP' : 'NULL'} WHERE id = ?`,
+      [status, attempts, rejected ? `production failed ${attempts} times, last: ${text}` : (text || null), id]);
+    return { status, attempts };
   }
 
   async status(perWeek) {
@@ -88,4 +102,4 @@ class StoryPool {
   }
 }
 
-module.exports = { StoryPool, poolDays, allowedCadencePerWeek, TARGET_DAYS, MAX_ATTEMPTS };
+module.exports = { StoryPool, poolDays, allowedCadencePerWeek, TARGET_DAYS, MAX_ATTEMPTS, QUARANTINE_AFTER, QUARANTINE_HOURS };

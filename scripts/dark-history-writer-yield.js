@@ -46,7 +46,7 @@ async function main() {
         ok += 1; passed += 1; attempts.push(script.metadata.creativeReview.attempts.length);
         if (script.metadata.creativeReview.repairedByDeletion) repaired += 1;
         narrated.push(script.beats.length);
-      } catch (error) { attempts.push('X'); reasons.push(String(error.message).replace(/s+/g, ' ').slice(0, 160)); }
+      } catch (error) { attempts.push('X'); reasons.push(String(error.message).replace(/\s+/g, ' ').slice(0, 160)); }
     }
     console.log(`${title}: ${ok}/${runs} produced a script; attempts ${attempts.join(',')}; repaired by deletion in ${repaired} of them; narrated beats ${narrated.join(',') || '-'}`);
     for (const reason of reasons) console.log(`    failed: ${reason}`);

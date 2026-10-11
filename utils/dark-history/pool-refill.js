@@ -11,6 +11,7 @@ const { vetArticle } = require('./event-vetting');
 const { pruneNearDuplicates } = require('./dhash');
 const { ensureFootageFit } = require('./footage-fit');
 const { TARGET_DAYS } = require('./story-pool');
+const { storyReadiness } = require('./readiness');
 
 // Most stories need no judge call at all (editor-placed images suffice); a story that does needs about 8-12.
 const DAILY_LLM_CALLS = 150;
@@ -50,9 +51,11 @@ async function researchOne(title, { pool, http, judge, imageDir, now, visionJudg
     if (error.code === 'STORY_NOT_ELIGIBLE') return pool.add({ title, status: 'rejected', articleUrl: article.url, revisionId: article.revisionId, reason: `footage fit: ${error.message}`.slice(0, 500) });
     throw error;
   }
+  const readiness = storyReadiness({ plan: { beats: fitted.plan.beats } });
+  if (!readiness.ok) return pool.add({ title, status: 'rejected', articleUrl: article.url, revisionId: article.revisionId, reason: `material: ${readiness.reason}` });
   return pool.add({
     title, status: 'ready', articleUrl: article.url, revisionId: article.revisionId, shareAlike: plan.shareAlike,
-    plan: { title: article.title, extract: article.extract, license: article.license, folder, beats: fitted.plan.beats, fit: fitted.plan.fit },
+    plan: { title: article.title, extract: article.extract, license: article.license, folder, beats: fitted.plan.beats, fit: fitted.plan.fit, richness: readiness.score },
     attribution: fitted.attribution, reason: vet.reason
   });
 }
