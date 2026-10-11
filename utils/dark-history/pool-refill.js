@@ -14,7 +14,11 @@ const { TARGET_DAYS } = require('./story-pool');
 const { storyReadiness } = require('./readiness');
 
 // Most stories need no judge call at all (editor-placed images suffice); a story that does needs about 8-12.
-const DAILY_LLM_CALLS = 150;
+const DAILY_LLM_CALLS = 300;
+// Untouched stories (never tried) the pool should hold: research goes on while fewer are left, even when the pool as a whole covers the target days
+// (stories that already failed once are most of what a "ready" count shows).
+const FRESH_TARGET = Number(process.env.DARK_HISTORY_FRESH_TARGET) || 8;
+const REFILL_BATCH = Number(process.env.DARK_HISTORY_REFILL_BATCH) || 8; // candidates researched per run (was 3: about 12 a day, half refused for lack of pictures)
 const SKIP_TITLE = /^(list of|category:|template:|timeline of|outline of)/i;
 
 /** Titles from the vetted event list first, then members of the configured Wikipedia categories. */
@@ -64,14 +68,14 @@ async function researchOne(title, { pool, http, judge, imageDir, now, visionJudg
  * refillPool({ pool, judge, notify, perWeek, imageDir }) -> { researched, ready, days, allowedPerWeek, low }.
  * Researches up to maxAttempts candidates per run (free-quota friendly) and alerts when the pool is low.
  */
-async function refillPool({ pool, http = defaultHttp, judge, visionJudge = null, readImage, notify, perWeek, imageDir, maxAttempts = 3, candidates = null, dailyLlmCalls = Number(process.env.DARK_HISTORY_DAILY_LLM_CALLS) || DAILY_LLM_CALLS, now = new Date(), logger = console }) {
+async function refillPool({ pool, http = defaultHttp, judge, visionJudge = null, readImage, notify, perWeek, imageDir, maxAttempts = REFILL_BATCH, candidates = null, dailyLlmCalls = Number(process.env.DARK_HISTORY_DAILY_LLM_CALLS) || DAILY_LLM_CALLS, now = new Date(), logger = console }) {
   let researched = 0;
   let budgetExhausted = false;
   // free-tier budget: research stops for the day once this many judge calls were spent (the count survives restarts)
   const budgetKey = `dh_llm_calls:${now.toISOString().slice(0, 10)}`;
   let spent = Number(await pool.db.getSetting(budgetKey)) || 0;
   const countingJudge = judge && (async (...args) => { spent += 1; await pool.db.setSetting(budgetKey, String(spent)); return judge(...args); });
-  if ((await pool.status(perWeek)).low) {
+  if ((await pool.status(perWeek)).low || (await pool.untouchedCount()) < FRESH_TARGET) {
     for (const title of candidates || await nextCandidates(await pool.knownTitles(), maxAttempts, http)) {
       if (spent >= dailyLlmCalls) { budgetExhausted = true; logger.warn?.(`story pool: daily LLM budget (${dailyLlmCalls} calls) spent, research resumes tomorrow`); break; }
       researched += 1;
@@ -79,6 +83,8 @@ async function refillPool({ pool, http = defaultHttp, judge, visionJudge = null,
         await researchOne(title, { pool, http, judge: countingJudge, imageDir, now, visionJudge, readImage });
       } catch (error) {
         // a transient failure (network, rate limit) must not mark the event as rejected for good
+        // a title without an article is stored as refused: it is not asked for again at every run
+        if (/^Wikipedia: no article text/.test(error.message)) await pool.add({ title, status: 'rejected', reason: 'article not found' });
         logger.warn?.(`story pool: "${title}" skipped this run: ${error.message}`);
       }
     }
