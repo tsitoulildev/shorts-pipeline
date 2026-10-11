@@ -274,12 +274,14 @@ function makeLlm(mode = { writer: 'ok' }) {
     await addToPool(pool, await makeStory(dir, 'Failing Story'));
     const agent = makeAgent({ llm: makeLlm({ writer: 'garbage' }) });
     for (let attempt = 1; attempt <= 3; attempt += 1) {
+      // after the second failure the story is parked; it is taken again only after 24 h (and only because nothing else is ready)
+      if (attempt === 3) await db.executeQuery("UPDATE story_pool SET used_at = datetime('now', '-25 hours') WHERE title = 'Failing Story' AND status = 'quarantine'");
       const job = await agent.queueScheduledContent({ source: 'scheduler' });
       const done = await agent.waitForGenerationJob(job.id);
       assert.strictEqual(done.status, 'failed');
       assert.match(done.error, /no title\/beats|JSON/i, 'the job keeps the real cause');
       const row = await db.getRow("SELECT status, attempts FROM story_pool WHERE title = 'Failing Story'");
-      assert.deepStrictEqual([row.status, row.attempts], [attempt < 3 ? 'ready' : 'rejected', attempt]);
+      assert.deepStrictEqual([row.status, row.attempts], [['ready', 'quarantine', 'rejected'][attempt - 1], attempt]);
       assert.strictEqual(await db.getSetting('last_content_generation'), before, 'a failure does not move the pacing clock');
     }
     assert.deepStrictEqual(fiction, [], 'a failed Dark History production never falls back to the old pipeline');
