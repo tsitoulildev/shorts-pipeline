@@ -5,17 +5,22 @@ const { DailyAutomation } = require('../schedules/daily-automation');
 
 const silent = { info() {}, warn() {}, error() {}, success() {}, startTimer: () => ({ end() {} }) };
 const HOUR = 3600000;
-const makeScheduler = (lastGeneration, queued = 0) => {
+const makeScheduler = (lastGeneration, queued = 0, oldCompleted = 0, ready = 42) => {
   const settings = lastGeneration ? { last_content_generation: lastGeneration } : {};
   const db = {
     getChannelStrategy: async () => ({ id: 's', status: 'active', cadence_per_week: 21 }),
-    getAllRows: async sql => (/FROM publish_schedule/.test(sql) ? [{ n: queued }] : []),
+    getAllRows: async sql => {
+      if (/FROM publish_schedule/.test(sql)) return [{ n: queued }];
+      // the week's completed jobs: 16 old stickman Shorts, no Dark History one
+      if (/FROM generation_jobs/.test(sql)) return /style = 'documentary'/.test(sql) ? [] : Array.from({ length: oldCompleted }, () => ({ details: '{"reviewStatus":"approved"}' }));
+      return [];
+    },
     getSetting: async key => settings[key] ?? null,
     getPoolStatus: async () => null
   };
   const scheduler = new DailyAutomation({}, db, {});
   scheduler.logger = silent;
-  scheduler.storyPool = { status: async () => ({ ready: 42 }) };
+  scheduler.storyPool = { status: async () => ({ ready }) };
   return scheduler;
 };
 
@@ -57,6 +62,8 @@ async function main() {
   process.env.DARK_HISTORY_QUEUE_AHEAD = '2';
   assert.equal(await makeScheduler(null, 2).shouldGenerateContentToday(), false, 'the target can be changed');
   delete process.env.DARK_HISTORY_QUEUE_AHEAD;
+  // Live: the weekly count is the Dark History Shorts only; 16 old stickman Shorts of the last 7 days must not stop production (they did: 16 of 15)
+  assert.equal(await makeScheduler(null, 0, 16, 22).shouldGenerateContentToday(), true, 'old Shorts do not count against the week (22 ready stories allow about 11 a week)');
   // Not live: the old pacing gate (21/week = one per 8 h) is unchanged.
   process.env.DARK_HISTORY_LIVE = 'false';
   assert.equal(await makeScheduler(new Date(Date.now() - 7.5 * HOUR).toISOString()).shouldGenerateContentToday(), false);
@@ -64,6 +71,9 @@ async function main() {
   assert.equal(await early.shouldGenerateContentToday(), false);
   assert.match(early.lastSkipReason, /pacing/);
   assert.equal(await makeScheduler(new Date(Date.now() - 9 * HOUR).toISOString()).shouldGenerateContentToday(), true);
+  const old = makeScheduler(null, 0, 22);
+  assert.equal(await old.shouldGenerateContentToday(), false, 'not live: every Short counts, as before');
+  assert.match(old.lastSkipReason, /weekly target reached/);
   console.log('dark-history slots: ok');
   process.exit(0);
 }
