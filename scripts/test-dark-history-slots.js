@@ -5,14 +5,14 @@ const { DailyAutomation } = require('../schedules/daily-automation');
 
 const silent = { info() {}, warn() {}, error() {}, success() {}, startTimer: () => ({ end() {} }) };
 const HOUR = 3600000;
-const makeScheduler = (lastGeneration, queued = 0, oldCompleted = 0, ready = 42) => {
+const makeScheduler = (lastGeneration, queued = 0, oldCompleted = 0, ready = 42, documentaryCompleted = 0) => {
   const settings = lastGeneration ? { last_content_generation: lastGeneration } : {};
   const db = {
     getChannelStrategy: async () => ({ id: 's', status: 'active', cadence_per_week: 21 }),
     getAllRows: async sql => {
       if (/FROM publish_schedule/.test(sql)) return [{ n: queued }];
       // the week's completed jobs: 16 old stickman Shorts, no Dark History one
-      if (/FROM generation_jobs/.test(sql)) return /style = 'documentary'/.test(sql) ? [] : Array.from({ length: oldCompleted }, () => ({ details: '{"reviewStatus":"approved"}' }));
+      if (/FROM generation_jobs/.test(sql)) return /style = 'documentary'/.test(sql) ? Array.from({ length: documentaryCompleted }, () => ({ details: '{"reviewStatus":"approved"}' })) : Array.from({ length: oldCompleted }, () => ({ details: '{"reviewStatus":"approved"}' }));
       return [];
     },
     getSetting: async key => settings[key] ?? null,
@@ -64,6 +64,17 @@ async function main() {
   delete process.env.DARK_HISTORY_QUEUE_AHEAD;
   // Live: the weekly count is the Dark History Shorts only; 16 old stickman Shorts of the last 7 days must not stop production (they did: 16 of 15)
   assert.equal(await makeScheduler(null, 0, 16, 22).shouldGenerateContentToday(), true, 'old Shorts do not count against the week (22 ready stories allow about 11 a week)');
+  // The pool limits the weekly cadence by default (22 ready stories: 11 a week at the 14-day default horizon); DARK_HISTORY_POOL_LIMITS_CADENCE=false keeps the strategy's 21
+  delete process.env.DARK_HISTORY_POOL_LIMITS_CADENCE;
+  const limited = makeScheduler(null, 0, 0, 22, 17);
+  assert.equal(await limited.shouldGenerateContentToday(), false);
+  assert.match(limited.lastSkipReason, /weekly target reached \(17\/11/);
+  process.env.DARK_HISTORY_POOL_LIMITS_CADENCE = 'false';
+  assert.equal(await makeScheduler(null, 0, 0, 22, 17).shouldGenerateContentToday(), true, '17 of 21 a week: still allowed');
+  const capped = makeScheduler(null, 0, 0, 22, 21);
+  assert.equal(await capped.shouldGenerateContentToday(), false, 'the 21 a week cap itself stays');
+  assert.match(capped.lastSkipReason, /weekly target reached \(21\/21/);
+  delete process.env.DARK_HISTORY_POOL_LIMITS_CADENCE;
   // Not live: the old pacing gate (21/week = one per 8 h) is unchanged.
   process.env.DARK_HISTORY_LIVE = 'false';
   assert.equal(await makeScheduler(new Date(Date.now() - 7.5 * HOUR).toISOString()).shouldGenerateContentToday(), false);

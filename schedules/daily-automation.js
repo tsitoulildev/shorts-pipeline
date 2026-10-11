@@ -7,6 +7,7 @@ const { StoryPool } = require('../utils/dark-history/story-pool');
 // Dark History check: every hour at minute 40, which sits between every other job (:00 :15 :20 :30 :45). A check that finds the queue full costs nothing; one that
 // finds it short produces a Short, and a failed attempt is tried again an hour later with the next story.
 const DEFAULT_SLOT_CRON = '40 * * * *';
+const poolLimitsCadence = () => String(process.env.DARK_HISTORY_POOL_LIMITS_CADENCE || 'true').toLowerCase() !== 'false';
 const DEFAULT_QUEUE_AHEAD = 5; // Shorts kept scheduled ahead (the publish cadence guard spaces them 8 h apart: about 40 hours)
 
 class DailyAutomation {
@@ -237,7 +238,7 @@ class DailyAutomation {
       this.storyPool = this.storyPool || new StoryPool(this.db);
       const sustainable = await sustainableCadence(this.storyPool, target);
       if (sustainable.perWeek < 1) return null;
-      target = sustainable.perWeek;
+      if (poolLimitsCadence()) target = sustainable.perWeek;
     }
     const limitHours = Math.max(Number(process.env.PRODUCTION_STALL_HOURS || 16), 2 * (7 * 24) / target);
     const hours = (Date.now() - new Date(last).getTime()) / 3600000;
@@ -275,7 +276,8 @@ class DailyAutomation {
           this.lastSkipReason = 'the Dark History story pool is empty (0 stories ready); the refill job is researching more';
           return false;
         }
-        target = sustainable.perWeek;
+        // DARK_HISTORY_POOL_LIMITS_CADENCE=false: the weekly target stays the strategy's (21 a week = 3 a day) whatever the stock; the pool then only alerts (story_pool_low)
+        if (poolLimitsCadence()) target = sustainable.perWeek;
       }
       // Live: only Dark History Shorts count against the week (the stickman Shorts of the days before the switch made the count 16 of 15 and stopped production).
       const weeklyRows = await this.db.getAllRows(
