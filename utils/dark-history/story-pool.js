@@ -54,6 +54,12 @@ class StoryPool {
     return id;
   }
 
+  /** Ready stories that were never tried. */
+  async untouchedCount() {
+    await this.ensure();
+    return (await this.db.getRow("SELECT COUNT(*) AS n FROM story_pool WHERE status = 'ready' AND COALESCE(attempts, 0) = 0")).n;
+  }
+
   async readyCount() {
     await this.ensure();
     return (await this.db.getRow("SELECT COUNT(*) AS n FROM story_pool WHERE status = 'ready'")).n;
