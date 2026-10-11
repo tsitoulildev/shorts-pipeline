@@ -195,9 +195,11 @@ function makeVisionJudge(llm, { models = null, timeoutMs = FIT_TIMEOUT_MS, env =
         if (!String(text).trim()) throw new Error('empty vision response');
         if (request.validate && !request.validate(text)) throw Object.assign(new Error(`${entry.name} gave an unusable answer`), { unusable: true });
         judge.lastProvider = entry.name;
+        try { llm?.statsSink?.({ role: 'judge', provider: entry.name, model: 'vision', outcome: 'ok' }); } catch (_e) { /* statistics only */ }
         return text;
       } catch (error) {
         lastError = error;
+        try { llm?.statsSink?.({ role: 'judge', provider: entry.name, model: 'vision', outcome: Number(error?.response?.status) === 429 ? 'rate_limited' : /timed out/i.test(String(error?.message)) ? 'timeout' : 'failed' }); } catch (_e) { /* statistics only */ }
         // A per-minute rate limit (Mistral free: 30 requests a minute) rests a provider for a minute (or its Retry-After); a spent DAILY quota for 30 minutes.
         const text = String(error?.message || '') + JSON.stringify(error?.response?.data || '');
         const limited = Number(error?.response?.status) === 429 || /429|RESOURCE_EXHAUSTED|rate.?limit/i.test(text);
