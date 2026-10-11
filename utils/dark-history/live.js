@@ -12,6 +12,7 @@ const { pruneNearDuplicates } = require('./dhash');
 const { ensureFootageFit } = require('./footage-fit');
 const { makeVisionJudge } = require('./image-fit');
 const { attributionText } = require('./attribution');
+const { storyReadiness } = require('./readiness');
 
 const OUTPUT_DIR = path.join(__dirname, '..', '..', 'data', 'dark-history-output');
 const OUTPUT_KEEP_DAYS = 14;
@@ -130,6 +131,9 @@ async function produceOne({ pool, llm, generator, imageFit = null, workRoot = OU
     } else {
       story.plan.beats = distinct.beats;
     }
+    // Enough source text and captioned pictures for the writer to succeed, before any LLM call is spent on the story.
+    const readiness = storyReadiness(story);
+    if (!readiness.ok) throw failure('STORY_NOT_ELIGIBLE', readiness.reason, { permanent: true });
     // A story made before the footage check existed carries no verdict: it is checked now (one vision request), and a story that carries one is not.
     story = await ensureFootageFit(story, imageFit || { judge: makeVisionJudge(llm) });
     await onStage('script', 25);

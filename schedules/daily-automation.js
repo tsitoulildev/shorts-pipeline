@@ -4,9 +4,10 @@ const channelIdentity = require('../utils/channel-identity');
 const { isLive, pruneOutput, sustainableCadence } = require('../utils/dark-history/live');
 const { StoryPool } = require('../utils/dark-history/story-pool');
 
-// Dark History check: every two hours at minute 40, which sits between every other job (:00 :15 :20 :30 :45); the pacing gate (one Short per 8 h) decides.
-const DEFAULT_SLOT_CRON = '40 */2 * * *';
-const SLOT_PACING_TOLERANCE_HOURS = 1; // a slot fires a little before 8 h have passed since the last Short finished
+// Dark History check: every hour at minute 40, which sits between every other job (:00 :15 :20 :30 :45). A check that finds the queue full costs nothing; one that
+// finds it short produces a Short, and a failed attempt is tried again an hour later with the next story.
+const DEFAULT_SLOT_CRON = '40 * * * *';
+const DEFAULT_QUEUE_AHEAD = 5; // Shorts kept scheduled ahead (the publish cadence guard spaces them 8 h apart: about 40 hours)
 
 class DailyAutomation {
   constructor(agents, database, options = {}) {
@@ -255,6 +256,12 @@ class DailyAutomation {
     return { hours, limitHours };
   }
 
+  /** Shorts that are scheduled and not yet published. */
+  async scheduledAhead() {
+    const rows = await this.db.getAllRows("SELECT COUNT(*) AS n FROM publish_schedule WHERE status = 'scheduled' AND publish_time > ?", [new Date().toISOString()]);
+    return Number(rows?.[0]?.n) || 0;
+  }
+
   async shouldGenerateContentToday() {
     this.lastSkipReason = null;
     const channelStrategy = this.db.getChannelStrategy ? await this.db.getChannelStrategy() : null;
@@ -288,11 +295,23 @@ class DailyAutomation {
         return false;
       }
 
+      if (isLive()) {
+        // Dark History produces AHEAD: while fewer than DARK_HISTORY_QUEUE_AHEAD Shorts are scheduled, a Short is made at every check (the weekly target above and
+        // the publish cadence guard still bound what is published); with the queue full nothing is spent.
+        const ahead = Math.max(1, Number(process.env.DARK_HISTORY_QUEUE_AHEAD) || DEFAULT_QUEUE_AHEAD);
+        const queued = await this.scheduledAhead();
+        if (queued >= ahead) {
+          this.lastSkipReason = `queue full: ${queued} Shorts are scheduled (target ${ahead}, about ${Math.round(queued * 168 / target)} h ahead)`;
+          return false;
+        }
+        return true;
+      }
+
       const lastGeneration = await this.db.getSetting('last_content_generation');
       if (!lastGeneration) return true;
 
       const elapsedHours = (Date.now() - new Date(lastGeneration).getTime()) / 3600000;
-      const pacingHours = (7 * 24) / target - (isLive() ? SLOT_PACING_TOLERANCE_HOURS : 0);
+      const pacingHours = (7 * 24) / target;
       if (elapsedHours < pacingHours) {
         this.lastSkipReason = `pacing: next Short is due in ${(pacingHours - elapsedHours).toFixed(1)} h (one every ${pacingHours.toFixed(1)} h)`;
         return false;

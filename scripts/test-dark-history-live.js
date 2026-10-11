@@ -60,7 +60,7 @@ async function makeStory(dir, title = 'Mary Celeste', { duplicates = 0, base = 4
     const file = `${sha256.slice(0, 16)}.png`;
     fs.renameSync(raw, path.join(folder, file));
     beats.push({
-      heading: `Beat ${i + 1}`, text: SENTENCES[i] || SENTENCES[0],
+      heading: `Beat ${i + 1}`, text: [SENTENCES[i] || SENTENCES[0], 'The record of this part continues with further plain detail.', 'Other sources describe the same part of the story at length.'].join(' '), // 3 citable sentences: the readiness check before the writer needs them
       images: [{ title: `${title} photo ${i + 1}.png`, file, sha256, width: dims[i][0], height: dims[i][1], mime: 'image/png', license: i === 1 ? 'CC BY 4.0' : 'Public domain', author: i === 1 ? 'A. Photographer' : null,
         descriptionUrl: `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(title)}_photo_${i + 1}.png`, fileUrl: `https://upload.wikimedia.org/wikipedia/commons/${i}/photo${i + 1}.png`, licenseUrl: null }]
     });

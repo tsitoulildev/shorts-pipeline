@@ -1,15 +1,15 @@
-// Dark History slots: one Short per slot, LLM jobs never overlap, pacing tolerates a slot firing slightly early, a failed slot waits for the next.
+// Dark History checks: hourly at minute 40, LLM jobs never overlap, Shorts are produced AHEAD until the queue of scheduled Shorts is full, a failed check waits for the next.
 const assert = require('node:assert/strict');
 const cron = require('node-cron');
 const { DailyAutomation } = require('../schedules/daily-automation');
 
 const silent = { info() {}, warn() {}, error() {}, success() {}, startTimer: () => ({ end() {} }) };
 const HOUR = 3600000;
-const makeScheduler = (lastGeneration) => {
+const makeScheduler = (lastGeneration, queued = 0) => {
   const settings = lastGeneration ? { last_content_generation: lastGeneration } : {};
   const db = {
     getChannelStrategy: async () => ({ id: 's', status: 'active', cadence_per_week: 21 }),
-    getAllRows: async () => [],
+    getAllRows: async sql => (/FROM publish_schedule/.test(sql) ? [{ n: queued }] : []),
     getSetting: async key => settings[key] ?? null,
     getPoolStatus: async () => null
   };
@@ -44,20 +44,26 @@ async function main() {
       s.scheduledTasks.forEach(task => task.stop());
     }
   } finally { cron.schedule = realSchedule; }
-  assert.deepEqual(tasks, ['40 */2 * * *', '40 */2 * * *', '10 4,12,20 * * *', '0 */2 * * *']);
+  assert.deepEqual(tasks, ['40 * * * *', '40 * * * *', '10 4,12,20 * * *', '0 */2 * * *']);
 
-  // pacing: 21/week = one per 8 h. Live: a slot 7.5 h after the last Short is due (tolerance 1 h), 6.5 h is not. Not live: 7.5 h is not due.
+  // Live: Shorts are made ahead. Fewer than 5 scheduled (DARK_HISTORY_QUEUE_AHEAD, default 5) = a Short is made at this check, whatever the last one was; 5 = nothing is spent.
   process.env.DARK_HISTORY_LIVE = 'true';
-  assert.equal(await makeScheduler(new Date(Date.now() - 7.5 * HOUR).toISOString()).shouldGenerateContentToday(), true);
+  delete process.env.DARK_HISTORY_QUEUE_AHEAD;
+  assert.equal(await makeScheduler(new Date(Date.now() - 1 * HOUR).toISOString(), 0).shouldGenerateContentToday(), true, 'empty queue: produce, even one hour after the last');
+  assert.equal(await makeScheduler(new Date(Date.now() - 1 * HOUR).toISOString(), 4).shouldGenerateContentToday(), true, '4 of 5 scheduled: produce');
+  const full = makeScheduler(new Date(Date.now() - 20 * HOUR).toISOString(), 5);
+  assert.equal(await full.shouldGenerateContentToday(), false);
+  assert.match(full.lastSkipReason, /queue full: 5 Shorts are scheduled \(target 5/);
+  process.env.DARK_HISTORY_QUEUE_AHEAD = '2';
+  assert.equal(await makeScheduler(null, 2).shouldGenerateContentToday(), false, 'the target can be changed');
+  delete process.env.DARK_HISTORY_QUEUE_AHEAD;
+  // Not live: the old pacing gate (21/week = one per 8 h) is unchanged.
+  process.env.DARK_HISTORY_LIVE = 'false';
+  assert.equal(await makeScheduler(new Date(Date.now() - 7.5 * HOUR).toISOString()).shouldGenerateContentToday(), false);
   const early = makeScheduler(new Date(Date.now() - 6.5 * HOUR).toISOString());
   assert.equal(await early.shouldGenerateContentToday(), false);
   assert.match(early.lastSkipReason, /pacing/);
-  process.env.DARK_HISTORY_LIVE = 'false';
-  assert.equal(await makeScheduler(new Date(Date.now() - 7.5 * HOUR).toISOString()).shouldGenerateContentToday(), false);
-
-  // a failed slot leaves last_content_generation untouched (it is written only on success), so the next slot, 8 h later, is due
-  process.env.DARK_HISTORY_LIVE = 'true';
-  assert.equal(await makeScheduler(new Date(Date.now() - 16 * HOUR).toISOString()).shouldGenerateContentToday(), true);
+  assert.equal(await makeScheduler(new Date(Date.now() - 9 * HOUR).toISOString()).shouldGenerateContentToday(), true);
   console.log('dark-history slots: ok');
   process.exit(0);
 }
