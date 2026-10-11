@@ -216,8 +216,10 @@ function buildBeatPrompt(story, named, brief, previous, shows) {
       + '\nWRITTEN BEFORE: ' + JSON.stringify({ narration: before.narration, evidence_ids: before.evidenceIds || [] })
       + '\nEXACT PROBLEMS WITH IT (fix every one):\n' + (mine.map(note => '- ' + note).join('\n') || '- none named');
   }).join('\n\n');
+  const othersNarrated = previous.beats.filter((beat, i) => !beat.skip && !named.has(i + 1)).length;
   const rest = previous.beats.map((b, i) => (named.has(i + 1) ? null : (b.skip ? 'Beat ' + (i + 1) + ': (skipped)' : 'Beat ' + (i + 1) + ': ' + b.narration))).filter(Boolean).join('\n');
   return 'You are fixing single beats of the narration of a true-story YouTube Short about "' + story.plan.title + '". The voice is a calm documentary narrator.\n\n'
+    + (othersNarrated < 4 ? 'You may NOT skip a beat in this request: only ' + othersNarrated + ' other beats are narrated and at least 4 must be. ' : 'You may skip a beat (write {"skip":true}) only if its source sentences hold nothing about what the picture shows. ')
     + 'Rules: narrate ONLY what the cited source sentences state; every number, year, name and count must be in a sentence you cite (see ALLOWED), numbers as digits; ' + WORDS.beatMin + '-' + WORDS.beatMax + ' spoken words per beat; short sentences, no semicolons or dashes, plain ASCII, past tense; the narration must be about what the beat\'s picture shows, or write {"skip":true} for the beat. Cite 1-3 sentence ids per beat; you copy nothing, the program copies the sentences.\n\n'
     + 'THE REST OF THE SCRIPT (read only, do not change):\n' + rest + '\n\n' + blocks + '\n\n'
     + 'Return JSON only, with exactly the beats above: {"beats":{"' + [...named].sort((a, b) => a - b)[0] + '":{"narration":"","evidence_ids":["' + [...named].sort((a, b) => a - b)[0] + '.1"]}}}';
@@ -229,9 +231,11 @@ function parseBeatReply(reply, named, story, previous) {
   const map = parsed?.beats;
   if (!map || typeof map !== 'object') throw new Error('writer returned no title/beats');
   const out = {};
+  const othersNarrated = previous.beats.filter((beat, i) => !beat.skip && !named.has(i + 1)).length;
   for (const n of named) {
     const b = Array.isArray(map) ? map[n - 1] : map[String(n)];
     if (!b || typeof b !== 'object') throw new Error('writer returned no title/beats (beat ' + n + ' missing)');
+    if (b.skip === true && othersNarrated + Object.values(out).filter(item => !item.skip).length < 4) throw new Error('writer returned no title/beats (a skip would leave fewer than 4 narrated beats)');
     out[n] = b.skip === true
       ? { ...previous.beats[n - 1], skip: true, narration: '', evidence: [], evidenceIds: [] }
       : { ...previous.beats[n - 1], skip: false, narration: spokenForm(b.narration), evidenceIds: [].concat(b.evidence_ids || []).map(String), evidence: b.evidence_ids === undefined ? (Array.isArray(b.evidence) ? b.evidence : []).map(e => String(e).trim()).filter(Boolean) : evidenceFromIds(b.evidence_ids, story, n - 1) };
