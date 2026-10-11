@@ -29,7 +29,7 @@ function sourceSentences(text, limit) {
 
 /** What a beat's sentences contain: the only numbers and names its narration may use. */
 function allowedIn(sentences) {
-  const joined = sentences.join('');
+  const joined = sentences.join(' ');
   const numbers = [...new Set((joined.match(/\d[\d,.]*\d|\d/g) || []).map(n => n.replace(/[,.]+$/, '')))];
   const names = [...new Set(properNouns(joined))].slice(0, 14);
   return { numbers, names };
@@ -125,7 +125,7 @@ function storyForScript(story, script) {
 function proseIssues(script) {
   const notes = [];
   const narrated = script.beats.filter(b => !b.skip);
-  const all = narrated.map(b => b.narration).join('');
+  const all = narrated.map(b => b.narration).join(' ');
   const total = wordCount(all);
   if (total < WORDS.min || total > WORDS.max) notes.push(`the narration is ${total} words; it must be ${WORDS.min}-${WORDS.max}`);
   const hookWords = wordCount(sentencesOf(narrated[0]?.narration)[0]);
@@ -155,7 +155,7 @@ function repairByDeletion(script, story, facts) {
     if (beat.skip) return beat;
     const evidenceText = provenEvidenceText(beat.evidence, story.plan.beats[index].text, story.plan.extract);
     const kept = evidenceText ? sentencesOf(beat.narration).filter((sentence, i) => !flagged.has(`${index + 1}.${i + 1}`) && !claimIssues(sentence, evidenceText, extract).length) : [];
-    const narration = kept.join('');
+    const narration = kept.join(' ');
     return wordCount(narration) < MIN_BEAT_WORDS ? { ...beat, skip: true, narration: '', evidence: [] } : { ...beat, narration };
   });
   return beats.filter(beat => !beat.skip).length < 4 ? null : withSummary({ ...script, beats });

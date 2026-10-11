@@ -37,6 +37,15 @@ assert.match(prompt, /ALLOWED in this beat[^\n]*numbers: 4, 1872, 1,701/);
 assert.match(prompt, /"evidence_ids":\["1\.1"\]/);
 assert.ok(!/copied VERBATIM/.test(prompt));
 
+// joins: beats are separated by a space (a join without one glued the last word of a beat to the first of the next: wrong word counts, "aboard.Her" in the spoken script)
+{
+  const { proseIssues } = require('../utils/dark-history/grounded-writer');
+  const two = { beats: [{ skip: false, narration: 'One two three four five.' }, { skip: false, narration: 'Six seven eight nine ten.' }] };
+  assert.match(proseIssues(two).join(), /the narration is 10 words/, 'ten words, not nine');
+  assert.deepEqual(allowedIn(['Captain Morehouse sent 3 men.', 'Dei Gratia sighted 1,701 barrels.']).numbers, ['3', '1,701']);
+  assert.ok(allowedIn(['Captain Morehouse sent 3 men.', 'Dei Gratia sighted 1,701 barrels.']).names.includes('Morehouse'));
+}
+
 // per-beat rewrite: only the named beat, its exact notes, the rest read-only
 const previous = {
   title: 't',
