@@ -67,6 +67,17 @@ const rewritten = parseBeatReply(reply, new Set([2]), story, previous);
 assert.deepEqual(rewritten[2].evidence, ['Captain Briggs had sailed with his wife and daughter.']);
 assert.throws(() => parseBeatReply('{"beats":{"1":{}}}', new Set([2]), story, previous), /beat 2 missing|no title/);
 
+// a skip that would leave fewer than 4 narrated beats is not allowed (the prompt says so and the parser refuses it, so the beat is asked for again)
+{
+  const five = { title: 't', beats: [1, 2, 3, 4, 5].map(n => ({ skip: false, narration: 'Beat ' + n + ' narration with enough words in it.', evidenceIds: [], evidence: [], images: [] })) };
+  const skipReply = ids => JSON.stringify({ beats: Object.fromEntries(ids.map(id => [String(id), { skip: true }])) });
+  assert.ok(parseBeatReply(skipReply([2]), new Set([2]), story, five)[2].skip, 'with 4 others narrated a skip is allowed');
+  assert.throws(() => parseBeatReply(skipReply([2, 3]), new Set([2, 3]), story, five), /fewer than 4 narrated beats/);
+  const story5 = { ...story, plan: { ...story.plan, beats: [1, 2, 3, 4, 5].map(n => beat('B' + n, 'Sentence one has enough words here. Sentence two has enough words here. Sentence three is long enough too.')) } };
+  assert.match(buildBeatPrompt(story5, new Set([2, 3]), '- beat 2: x', five, []), /You may NOT skip a beat in this request: only 3 other beats are narrated/);
+  assert.match(buildBeatPrompt(story5, new Set([2]), '- beat 2: x', five, []), /You may skip a beat/);
+}
+
 // end to end on the recorded Mary Celeste footage with a stub model: the first draft cites ids, one beat states an invented count, so the next request is the
 // rewrite of that beat only, and it goes to another model than the one that wrote the draft
 const { planFootage } = require('../utils/dark-history/footage');
