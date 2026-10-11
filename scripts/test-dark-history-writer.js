@@ -89,7 +89,7 @@ const fitOk = { judge: async () => JSON.stringify({ mismatch: [] }), readImage: 
   } };
   const script = await writeGroundedScript({ story, imageFit: fitOk, llm, maxRevisions: 2, repair: false });
   assert.strictEqual(script.beats.length, story.plan.beats.length);
-  assert.ok(prompts.some(p => /FACT-CHECK NOTES/.test(p) && /amount "Forty"/.test(p)), 'the rewrite prompt carries the fact-check issue');
+  assert.ok(prompts.some(p => /(FACT-CHECK NOTES|EXACT PROBLEMS WITH IT)/.test(p) && /amount "Forty"/.test(p)), 'the rewrite prompt carries the fact-check issue');
   assert.ok(script.metadata.creativeReview.attempts.length >= 2);
 
   // One round shows every problem: the verifier still runs when a beat failed a deterministic check, on the other beats.
@@ -315,11 +315,11 @@ const fitOk = { judge: async () => JSON.stringify({ mismatch: [] }), readImage: 
   const converged = await writeGroundedScript({ story, imageFit: fitOk, llm: converge, maxRevisions: 1, repair: false });
   assert.strictEqual(converged.beats[2].narration, faithful[2].narration, 'a beat the notes did not name is restored from the previous draft');
   assert.strictEqual(converged.beats[1].narration, faithful[1].narration, 'the flagged beat was rewritten');
-  assert.ok(/PREVIOUS DRAFT/.test(rewritePrompts[1]) && rewritePrompts[1].includes(broken[1].narration), 'the rewrite prompt carries the previous draft');
+  assert.ok(/(PREVIOUS DRAFT|WRITTEN BEFORE)/.test(rewritePrompts[1]) && rewritePrompts[1].includes(broken[1].narration), 'the rewrite prompt carries the previous draft');
   assert.ok(!/approved premise|Rewrite the full script/.test(rewritePrompts[1]), 'no horror wording in a documentary rewrite');
 
   // Seen on the VM: the model spelled dates out ("eighteen seventy-two"), which no source sentence contains; the prompt asks for digits.
-  assert.ok(/as digits exactly as the evidence has them/.test(require('../utils/dark-history/grounded-writer').buildPrompt(story, null)));
+  assert.ok(/as digits exactly as the source has them/.test(require('../utils/dark-history/grounded-writer').buildPrompt(story, null)));
 
   // Attribution reaches the description unchanged; an over-long one is rejected, never truncated.
   assert.ok(script.description.includes(story.attribution));
