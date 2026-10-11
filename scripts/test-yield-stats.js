@@ -16,6 +16,7 @@ assert.equal(classifyNote('beat 4: "Brummer" does not appear in the source'), 'n
 assert.equal(classifyNote('beat 2: the picture does not show what the narration says (the check gave no verdict for this beat)'), 'picture does not fit');
 assert.equal(classifyNote('the narration is 52 words; it must be 70-100'), 'word count');
 assert.equal(classifyNote('use plain ASCII letters only'), 'not plain ASCII');
+assert.equal(classifyNote('beat 3: 26 words for 1 picture(s); keep it to 21 words or fewer'), 'beat too long for its picture');
 assert.equal(classifyNote('remove semicolons and dashes; narration is spoken'), 'semicolons or dashes');
 assert.equal(classifyNote('Unexpected end of JSON input'), 'unusable reply');
 assert.deepEqual(causesOf({ message: 'x', attempts: [{ notes: ['beat 1: amount "Two" is not in its evidence || beat 2: the source does not support "y"'] }, { notes: ['use plain ASCII letters only'] }] }), ['number word not in evidence', 'sentence not supported', 'not plain ASCII']);

@@ -12,6 +12,7 @@ function classifyNote(note) {
   if (/the source does not support/.test(text)) return 'sentence not supported';
   if (/picture does not show|the check gave no verdict/.test(text)) return 'picture does not fit';
   if (/at least 4 beats|only \d+ beats are narrated|script has \d+ beats/.test(text)) return 'too few beats narrated';
+  if (/words for \d+ picture/.test(text)) return 'beat too long for its picture';
   if (/narration is \d+ words/.test(text)) return 'word count';
   if (/hook/.test(text)) return 'hook length';
   if (/semicolons|dashes/.test(text)) return 'semicolons or dashes';
