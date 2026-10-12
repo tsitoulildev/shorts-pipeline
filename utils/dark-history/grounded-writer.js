@@ -8,7 +8,7 @@ const { attributionText } = require('./attribution');
 const { checkImageFit, describePictures, makeVisionJudge } = require('./image-fit');
 
 // ljspeech speaks about 2 words a second (measured on the VM: 132 words = 64.7 s); the gate allows 60 s
-const WORDS = { min: 70, max: 100, beatMin: 9, beatMax: 18, perPictureMax: 21 }; // perPictureMax: a picture is shown for at most 9 s (+0.6): at about 2.1 spoken words a second that is 21 words
+const WORDS = { min: 70, max: 100, beatMin: 9, beatMax: 18, perPictureMax: 18 }; // perPictureMax: a picture is shown for at most 9 s (+0.6); the live Shorts speak 1.92-2.37 words a second, so 21 words can take 10.9 s and 18 words at most 9.4 s
 const PASS_SCORE = 7;
 const ART_STYLE = /\b(stick ?man|stick figure|stickmen|animation|cartoon|drawing)\b/i;
 const YT_DESCRIPTION_LIMIT = 4900;
