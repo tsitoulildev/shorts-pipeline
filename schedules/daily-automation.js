@@ -153,6 +153,15 @@ class DailyAutomation {
       );
     }
 
+    // Dark History: an alert (nothing else changes) when fewer than two Shorts are published or scheduled for today by 18:00 UTC.
+    if (isLive()) {
+      this.scheduledTasks.set('dark-history-daily-output',
+        cron.schedule('0 18 * * *', async () => {
+          if (this.isEnabled) await this.checkDailyOutput();
+        }, { scheduled: false, timezone: 'UTC' })
+      );
+    }
+
     this.scheduledTasks.forEach((task, name) => {
       task.start();
       this.logger.info(`Started scheduled task: ${name}`);
@@ -254,6 +263,29 @@ class DailyAutomation {
       dedupeMinutes: 720
     });
     return { hours, limitHours };
+  }
+
+  /**
+   * Alert only: fewer than `minimum` Shorts (published or scheduled to publish) on today's UTC date. The aim is 2 to 3 a day; this tells the owner when it is missed, with the
+   * rejection causes of the day. It changes no gate and starts nothing.
+   */
+  async checkDailyOutput(now = new Date(), minimum = 2) {
+    if (typeof this.notify !== 'function') return null;
+    const day = now.toISOString().slice(0, 10);
+    const rows = await this.db.getAllRows("SELECT COUNT(*) AS n FROM publish_schedule WHERE substr(publish_time, 1, 10) = ? AND status IN ('scheduled', 'uploading', 'uploaded', 'published')", [day]);
+    const count = Number(rows?.[0]?.n) || 0;
+    if (count >= minimum) return { day, count, alerted: false };
+    const causes = await this.db.getAllRows('SELECT cause, n FROM dh_rejections WHERE day = ? ORDER BY n DESC LIMIT 5', [day]).catch(() => []);
+    await this.notify({
+      type: 'dark_history_low_daily_output',
+      level: 'warning',
+      title: `Only ${count} Short(s) for ${day} (aim: 2 to 3)`,
+      message: `${count} Shorts are published or scheduled for ${day} UTC (aim: at least ${minimum}). No gate is relaxed for this; the rejection causes today: ${causes.map(c => `${c.cause} ${c.n}`).join(', ') || 'none recorded'}. See node scripts/dark-history-report.js 1.`,
+      data: { day, count, causes },
+      dedupeKey: `dark_history_low_daily_output:${day}`,
+      dedupeMinutes: 1440
+    });
+    return { day, count, alerted: true };
   }
 
   /** Shorts that are scheduled and not yet published. */
