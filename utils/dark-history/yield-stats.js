@@ -28,7 +28,9 @@ function classifyNote(note) {
 /** The causes of one failed job: every note of every attempt when there are some, else the error message. */
 function causesOf(error) {
   const notes = [];
-  for (const attempt of error?.attempts || []) for (const note of attempt.notes || []) notes.push(note);
+  // creative-review keeps its attempts in `reviewAttempts` (releaseAfterFailure overwrites `attempts` with the story's attempt count, a number)
+  const attempts = Array.isArray(error?.reviewAttempts) ? error.reviewAttempts : (Array.isArray(error?.attempts) ? error.attempts : []);
+  for (const attempt of attempts) for (const note of attempt.notes || []) notes.push(note);
   const causes = notes.length ? notes.flatMap(note => String(note).split('||')).map(classifyNote) : [classifyNote(error?.message)];
   return causes;
 }
