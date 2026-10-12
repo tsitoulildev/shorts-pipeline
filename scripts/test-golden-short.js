@@ -25,6 +25,8 @@ const everyPictureFits = { judge: async () => JSON.stringify({ mismatch: [] }), 
   assert.equal(review.passed, true, JSON.stringify(review.failures) + JSON.stringify(review.notes));
   assert.ok(review.overall >= 7, `score ${review.overall}`);
   assert.ok(proseIssues(script).length <= 1, JSON.stringify(proseIssues(script)));
+  // no beat is longer than one picture can be shown (18 words)
+  script.beats.forEach(b => assert.ok(b.narration.split(/\s+/).length <= 18, b.narration));
   // 3. the description keeps the credits unchanged
   const description = buildDescription(script, story);
   assert.ok(description.includes(story.attribution) && /Wikipedia/.test(description) && /Wikimedia Commons/.test(description));

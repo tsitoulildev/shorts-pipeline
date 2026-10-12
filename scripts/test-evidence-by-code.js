@@ -42,11 +42,12 @@ assert.ok(!/copied VERBATIM/.test(prompt));
   const { proseIssues } = require('../utils/dark-history/grounded-writer');
   const two = { beats: [{ skip: false, narration: 'One two three four five.' }, { skip: false, narration: 'Six seven eight nine ten.' }] };
   assert.match(proseIssues(two).join(), /the narration is 10 words/, 'ten words, not nine');
-  // a beat that talks longer than its pictures can be shown (a picture stays on screen at most 9 s: 21 words per picture) is said before the render
+  // a beat that talks longer than its pictures can be shown (a picture stays on screen at most 9 s: 18 words per picture) is said before the render
   const long = n => ({ beats: [{ skip: false, narration: Array.from({ length: n }, (_, i) => 'word' + i).join(' '), images: [{}] }] });
-  assert.match(proseIssues(long(26)).join(), /beat 1: 26 words for 1 picture\(s\); keep it to 21 words or fewer/);
-  assert.ok(!/words for/.test(proseIssues(long(19)).join()), '19 words on one picture pass (the golden Short has such beats)');
-  assert.ok(!/words for/.test(proseIssues({ beats: [{ ...long(30).beats[0], images: [{}, {}] }] }).join()), 'two pictures allow 42 words');
+  assert.match(proseIssues(long(26)).join(), /beat 1: 26 words for 1 picture\(s\); keep it to 18 words or fewer/);
+  assert.ok(!/words for/.test(proseIssues(long(18)).join()), '18 words on one picture pass (the golden Short has such beats)');
+  assert.match(proseIssues(long(19)).join(), /beat 1: 19 words for 1 picture\(s\)/, '19 words on one picture fail');
+  assert.ok(!/words for/.test(proseIssues({ beats: [{ ...long(36).beats[0], images: [{}, {}] }] }).join()), 'two pictures allow 36 words');
   assert.deepEqual(allowedIn(['Captain Morehouse sent 3 men.', 'Dei Gratia sighted 1,701 barrels.']).numbers, ['3', '1,701']);
   assert.ok(allowedIn(['Captain Morehouse sent 3 men.', 'Dei Gratia sighted 1,701 barrels.']).names.includes('Morehouse'));
 }
