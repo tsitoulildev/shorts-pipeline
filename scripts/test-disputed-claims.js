@@ -30,7 +30,27 @@ assert.deepEqual(one('The ship sank in 1912.', ['According to the inquiry, the s
 assert.deepEqual(disputedClaimIssues({ beats: [{ skip: true, narration: '', evidence: ['The theory is disputed.'] }] }), []);
 assert.equal(one('The ship sank in 1912.', ['A theory holds that the ship sank in 1912.']).length, 1);
 
-// 5. It is part of the prose check the writer's review loop already runs (and the note names the beat).
-const beats = Array.from({ length: 4 }, (_, i) => ({ narration: 'The harbour was full of ships and people waiting for news on that grey morning, number ' + i + '.', evidence: i === 1 ? ['The legend says the cow did it.'] : ['It happened.'] }));
-assert.ok(proseIssues({ beats }).some(note => /^beat 2: the source calls this uncertain/.test(note)));
-console.log('disputed claims: ok');
+// 5. It BLOCKS the draft in the writer's review (not a score penalty: one such note alone would still score 8.5 of 10): the golden Short, with a legend added to the source, fails
+//    while the beat says it as fact, and passes when the beat attributes it. The note names the beat, so only that beat is rewritten.
+(async () => {
+  const { reviewGrounded } = require('../utils/dark-history/grounded-writer');
+  const golden = require('./fixtures/golden-short.json');
+  const clone = v => JSON.parse(JSON.stringify(v));
+  const verifierSaysClean = async () => JSON.stringify({ unsupported: [] });
+  const fits = { judge: async () => JSON.stringify({ mismatch: [] }), readImage: async () => ({ mimeType: 'image/jpeg', data: 'AAAA' }) };
+  const legendSentence = 'A legend says the bell rang by itself.';
+  const story = clone(golden.story); story.plan.extract += ' ' + legendSentence;
+  const clean = await reviewGrounded({ ...clone(golden.script), metadata: {} }, story, verifierSaysClean, fits, { repair: false });
+  assert.equal(clean.passed, true, JSON.stringify(clean.notes));
+  const asFact = clone(golden.script); asFact.beats[3].evidence.push(legendSentence);
+  const blocked = await reviewGrounded({ ...asFact, metadata: {} }, story, verifierSaysClean, fits, { repair: false });
+  assert.equal(blocked.passed, false);
+  assert.ok(blocked.failures.includes('a claim the source calls uncertain is stated as fact'), JSON.stringify(blocked.failures));
+  assert.ok(blocked.notes.some(note => /^beat 4: the source calls this uncertain/.test(note)), JSON.stringify(blocked.notes));
+  assert.ok(!proseIssues(asFact).some(note => /uncertain/.test(note)), 'one note, not two');
+  const attributed = clone(asFact); attributed.beats[3].narration = 'Legend says the bell rang by itself. ' + attributed.beats[3].narration;
+  const fixed = await reviewGrounded({ ...attributed, metadata: {} }, story, verifierSaysClean, fits, { repair: false });
+  assert.deepEqual(fixed.failures.filter(f => /uncertain/.test(f)), [], JSON.stringify(fixed.notes));
+  console.log('disputed claims: ok');
+  process.exit(0);
+})().catch(error => { console.error(error); process.exit(1); });

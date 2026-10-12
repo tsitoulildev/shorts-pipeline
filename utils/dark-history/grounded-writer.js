@@ -161,7 +161,7 @@ function proseIssues(script) {
   script.beats.forEach((b, i) => { if (!b.skip && wordCount(b.narration) < 8) notes.push(`beat ${i + 1} is too thin (${wordCount(b.narration)} words)`); });
   // The documentary gate holds a picture to 9 s; a beat that talks longer than its pictures can be shown fails there (after the voice and the render were paid for): said now, so the beat is shortened.
   script.beats.forEach((b, i) => { const limit = WORDS.perPictureMax * Math.max(1, (b.images || []).length); if (!b.skip && wordCount(b.narration) > limit) notes.push(`beat ${i + 1}: ${wordCount(b.narration)} words for ${Math.max(1, (b.images || []).length)} picture(s); keep it to ${limit} words or fewer (a picture stays on screen at most 9 seconds)`); });
-  return [...notes, ...disputedClaimIssues(script)];
+  return notes;
 }
 
 /**
@@ -205,12 +205,14 @@ async function reviewGrounded(script, story, verify, imageFit = null, { repair =
   }
   // An unavailable vision model throws VISION_UNAVAILABLE: unchecked pictures never pass.
   // (Vision requests are free-tier quota: they run on drafts whose facts hold; a draft with a fact problem is rewritten first.)
-  const fit = !facts.passed ? { passed: false, issues: [], checkedBeats: 0, skipped: true } : await checkImageFit({ script, story, ...(imageFit || {}) });
+  // A claim the source calls uncertain but the narration states as fact blocks the draft (not a score penalty): that beat is rewritten before pictures are checked.
+  const disputed = disputedClaimIssues(script);
+  const fit = !facts.passed || disputed.length ? { passed: false, issues: [], checkedBeats: 0, skipped: true } : await checkImageFit({ script, story, ...(imageFit || {}) });
   const prose = proseIssues(script);
-  const accepted = facts.passed && fit.passed;
+  const accepted = facts.passed && fit.passed && !disputed.length;
   const overall = accepted ? Math.max(0, 10 - 1.5 * prose.length) : 0;
-  const failures = [...(facts.passed ? [] : ['fact-check failed']), ...(fit.passed || fit.skipped ? [] : ['a picture does not fit its narration']), ...(prose.length && overall < PASS_SCORE ? ['documentary prose below the floor'] : [])];
-  return { overall: Number(overall.toFixed(2)), passed: accepted && overall >= PASS_SCORE, failures, notes: [...facts.issues, ...fit.issues, ...prose], source: 'fact-check+images+prose', facts, ...(repaired ? { repairedByDeletion: repaired } : {}), imageFit: { passed: fit.passed, checkedBeats: fit.checkedBeats } };
+  const failures = [...(facts.passed ? [] : ['fact-check failed']), ...(disputed.length ? ['a claim the source calls uncertain is stated as fact'] : []), ...(fit.passed || fit.skipped ? [] : ['a picture does not fit its narration']), ...(prose.length && overall < PASS_SCORE ? ['documentary prose below the floor'] : [])];
+  return { overall: Number(overall.toFixed(2)), passed: accepted && overall >= PASS_SCORE, failures, notes: [...facts.issues, ...disputed, ...fit.issues, ...prose], source: 'fact-check+images+prose', facts, ...(repaired ? { repairedByDeletion: repaired } : {}), imageFit: { passed: fit.passed, checkedBeats: fit.checkedBeats } };
 }
 
 /**
