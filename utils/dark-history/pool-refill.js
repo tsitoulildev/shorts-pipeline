@@ -73,13 +73,16 @@ async function refillPool({ pool, http = defaultHttp, judge, visionJudge = null,
   // free-tier budget: research stops for the day once this many judge calls were spent (the count survives restarts)
   const budgetKey = `dh_llm_calls:${now.toISOString().slice(0, 10)}`;
   let spent = Number(await pool.db.getSetting(budgetKey)) || 0;
-  const countingJudge = judge && (async (...args) => { spent += 1; await pool.db.setSetting(budgetKey, String(spent)); return judge(...args); });
+  // Both the relevance judge and the vision judge (picture fit) are free-tier calls of the same day: both are counted, and the budget stops the research for the day.
+  const counted = fn => fn && (async (...args) => { spent += 1; await pool.db.setSetting(budgetKey, String(spent)); return fn(...args); });
+  const countingJudge = counted(judge);
+  const countingVision = counted(visionJudge);
   if ((await pool.untouchedCount()) < FRESH_TARGET) {
     for (const title of candidates || await nextCandidates(await pool.knownTitles(), maxAttempts, http)) {
       if (spent >= dailyLlmCalls) { budgetExhausted = true; logger.warn?.(`story pool: daily LLM budget (${dailyLlmCalls} calls) spent, research resumes tomorrow`); break; }
       researched += 1;
       try {
-        await researchOne(title, { pool, http, judge: countingJudge, imageDir, now, visionJudge, readImage });
+        await researchOne(title, { pool, http, judge: countingJudge, imageDir, now, visionJudge: countingVision, readImage });
       } catch (error) {
         // a transient failure (network, rate limit) must not mark the event as rejected for good
         // a title without an article is stored as refused: it is not asked for again at every run
