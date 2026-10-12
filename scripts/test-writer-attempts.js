@@ -84,7 +84,7 @@ const quiet = { info() {}, warn() {} };
   assert.equal(third.beats.length, faithful.length);
 
   // ---- 4. the prompts carry the source-fidelity rules ----
-  const rules = [/ONLY if it is written in the very sentence you cite/, /Never merge two facts/, /young woman.* is not a .teenage girl/, /may have.* stay in the sentence/];
+  const rules = [/ONLY if it is written in the very sentence you cite/, /Never merge two facts/, /young woman.* is not a .teenage girl/, /may have.* stay in the sentence/, /MUST list evidence_ids/];
   const full = buildPrompt(story, null, null, []);
   const beatPrompt = buildBeatPrompt(story, new Set([2]), '- beat 2: x', { beats: faithful.map(b => ({ ...b, skip: false })) }, []);
   for (const rule of rules) { assert.match(full, rule); assert.match(beatPrompt, rule); }
