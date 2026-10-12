@@ -143,20 +143,36 @@ async function planFootage(title, { http = defaultHttp, judge = null, article: f
   const remember = list => list.forEach(c => found.set(c.title, c));
   remember(await searchImages(article.title, { limit: 40 }, http));
 
-  const options = new Map();
-  const diagnostics = [];
+  // Phase 1, no LLM call: which pictures with a free licence exist for each passage (editor-placed, or found by the Commons search and past the word-overlap screen).
+  const gathered = [];
   for (const beat of candidates) {
     const owned = (sectionFiles.get(beat.section) || []).map(f => placed.get(f)).filter(Boolean)
       .map(c => { const lexical = relevance(c, beat, subjectTerms, true, weight); return { c, owned: true, lexical, score: lexical + 5 }; });
-    let searched = [];
+    let screened = [];
     const note = { heading: beat.heading, ownedTitles: owned.map(o => o.c.title), screened: [], approved: [] };
     // the LLM is asked only when editors placed too few images in this section (saves free-tier calls)
     if (judge && owned.length < minPerBeat) {
       remember(await searchImages(`${article.title} ${beat.terms.filter(t => !subjectTerms.includes(t)).slice(0, 3).join(' ')}`, { limit: 15 }, http));
       const ownedTitles = new Set(owned.map(o => o.c.title));
-      const screened = [...found.values()].filter(c => !ownedTitles.has(c.title))
+      screened = [...found.values()].filter(c => !ownedTitles.has(c.title))
         .map(c => ({ c, score: relevance(c, beat, subjectTerms, false, weight) })).filter(o => o.score > 0)
         .sort((a, b) => b.score - a.score).slice(0, SCREENED_PER_BEAT);
+    }
+    gathered.push({ beat, owned, screened, note });
+  }
+
+  // Pictures first, story second: if even a judge that approved every screened picture could not cover minBeats passages, the story falls here, before any LLM call.
+  const reachable = gathered.filter(g => g.owned.length >= minPerBeat || g.screened.length > 0).length;
+  if (reachable < minBeats) {
+    return { eligible: false, reason: `licensed footage for only ${reachable} of ${candidates.length} passages (need ${minBeats}) [image pre-check, no LLM call]`, article, beats: [], missing: candidates.map(b => b.heading), diagnostics: gathered.map(g => g.note), preChecked: true };
+  }
+
+  // Phase 2: the LLM judge looks only at the screened pictures of passages that still need one.
+  const options = new Map();
+  const diagnostics = [];
+  for (const { beat, owned, screened, note } of gathered) {
+    let searched = [];
+    if (screened.length) {
       const approved = new Set((await judge(beat, screened.map(o => o.c), { subject: article.title })).map(c => c.title));
       note.screened = screened.map(o => o.c.title);
       note.approved = [...approved];

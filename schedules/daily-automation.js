@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const { Logger } = require('../utils/logger');
 const channelIdentity = require('../utils/channel-identity');
-const { isLive, pruneOutput, sustainableCadence } = require('../utils/dark-history/live');
+const { isLive, pruneOutput, steadyCadence } = require('../utils/dark-history/live');
 const { StoryPool } = require('../utils/dark-history/story-pool');
 
 // Dark History check: every hour at minute 40, which sits between every other job (:00 :15 :20 :30 :45). A check that finds the queue full costs nothing; one that
@@ -147,7 +147,7 @@ class DailyAutomation {
     // (Dark History live implies the refill: without it the pool would run dry.)
     if (process.env.DARK_HISTORY_POOL_ENABLED === 'true' || isLive()) {
       this.scheduledTasks.set('story-pool-refill',
-        cron.schedule('15 */3 * * *', async () => {
+        cron.schedule('15 * * * *', async () => {
           if (this.isEnabled) await this.inLlmLane(() => this.refillStoryPool());
         }, { scheduled: false })
       );
@@ -233,11 +233,11 @@ class DailyAutomation {
     if (!last) return null;
     let target = Math.max(1, Math.min(35, Number(strategy.cadence_per_week || ((channelIdentity.publishingCadence?.shortsPerDay?.target || 3) * 7))));
     if (isLive()) {
-      // Dark History: the pool limits the cadence, so a slower pace is expected (an empty pool has its own alert, story_pool_low).
+      // Dark History: an empty pool is a wait for the refill (it has its own alert, story_pool_low), not a stall of the scheduler.
       this.storyPool = this.storyPool || new StoryPool(this.db);
-      const sustainable = await sustainableCadence(this.storyPool, target);
-      if (sustainable.perWeek < 1) return null;
-      target = sustainable.perWeek;
+      const steady = await steadyCadence(this.storyPool, target);
+      if (steady.empty) return null;
+      target = steady.perWeek;
     }
     const limitHours = Math.max(Number(process.env.PRODUCTION_STALL_HOURS || 16), 2 * (7 * 24) / target);
     const hours = (Date.now() - new Date(last).getTime()) / 3600000;
@@ -268,14 +268,14 @@ class DailyAutomation {
     if (channelStrategy?.status === 'active') {
       let target = Math.max(1, Math.min(35, Number(channelStrategy.cadence_per_week || ((channelIdentity.publishingCadence?.shortsPerDay?.target || 3) * 7))));
       if (isLive()) {
-        // Dark History: the cadence never outruns the story pool. The ready stories are spread over 14 days; an empty pool makes nothing.
+        // Dark History: a steady cadence (at most 3 a day), whatever the pool holds. Only a pool with nothing ready waits for the refill; quality is never lowered to fill the day.
         this.storyPool = this.storyPool || new StoryPool(this.db);
-        const sustainable = await sustainableCadence(this.storyPool, target);
-        if (sustainable.perWeek < 1) {
-          this.lastSkipReason = 'the Dark History story pool is empty (0 stories ready); the refill job is researching more';
+        const steady = await steadyCadence(this.storyPool, target);
+        if (steady.empty) {
+          this.lastSkipReason = 'the Dark History story pool is empty (0 stories ready); production waits for the refill job';
           return false;
         }
-        target = sustainable.perWeek;
+        target = steady.perWeek;
       }
       // Live: only Dark History Shorts count against the week (the stickman Shorts of the days before the switch made the count 16 of 15 and stopped production).
       const weeklyRows = await this.db.getAllRows(
