@@ -121,6 +121,28 @@ function storyForScript(story, script) {
   return { ...story, plan: { ...story.plan, beats }, attribution: attributionText({ title: story.plan.title, url: story.article_url }, beats) };
 }
 
+// A source sentence that calls a claim uncertain: a theory, a legend, an allegation, "is said to". Plain "according to" is NOT in this list (an official finding is not a doubt).
+const UNCERTAIN_IN_EVIDENCE = /\b(theor(?:y|ies)|hypothes[ie]s|speculat\w*|alleg\w*|disputed?|contested|controvers\w*|rumou?rs?|legend\w*|folklore|unproven|unverified|purported\w*|supposed(?:ly)?|reportedly|(?:is|are|was|were) said to|believed to|claim(?:s|ed)?|suspect(?:s|ed)?|may have|might have)\b/i;
+// The narration says who holds the claim, or that it is only a claim.
+const ATTRIBUTED_IN_NARRATION = /\b(theor(?:y|ies)|hypothes[ie]s|alleg\w*|disputed?|debated|contested|rumou?rs?|legend\w*|folklore|unproven|purported\w*|supposed(?:ly)?|reportedly|according to|(?:investigators|historians|researchers|experts) (?:think|thought|believe|suspect)|(?:is|are|was|were) said to|(?:he|she|they|it) said|believed (?:to|that|by)|claim(?:s|ed)?|suspect(?:s|ed)?|may have|might have|one account|some (?:historians|researchers|accounts|investigators))\b/i;
+
+/**
+ * A beat whose own evidence calls the claim a theory, a legend, an allegation or "said to" must carry its own attribution in the narration (who says it,
+ * or that it is only a claim). Returns one note per such beat; the note names the beat, so only that beat is rewritten, never the whole story.
+ * It is a presence check, not a reading of the sentence: the fact verifier still judges whether the narration says more than the evidence.
+ */
+function disputedClaimIssues(script) {
+  const notes = [];
+  script.beats.forEach((b, i) => {
+    if (b.skip) return;
+    const marker = (b.evidence || []).join(' ').match(UNCERTAIN_IN_EVIDENCE);
+    if (marker && !ATTRIBUTED_IN_NARRATION.test(b.narration || '')) {
+      notes.push(`beat ${i + 1}: the source calls this uncertain ("${marker[0]}"); say who claims it or that it is a theory/legend/said to be so ("according to...", "is said to...", "legend says..."), never as plain fact`);
+    }
+  });
+  return notes;
+}
+
 /** Documentary prose check (the horror heuristics do not apply: no twist, no cliche list). */
 function proseIssues(script) {
   const notes = [];
@@ -139,7 +161,7 @@ function proseIssues(script) {
   script.beats.forEach((b, i) => { if (!b.skip && wordCount(b.narration) < 8) notes.push(`beat ${i + 1} is too thin (${wordCount(b.narration)} words)`); });
   // The documentary gate holds a picture to 9 s; a beat that talks longer than its pictures can be shown fails there (after the voice and the render were paid for): said now, so the beat is shortened.
   script.beats.forEach((b, i) => { const limit = WORDS.perPictureMax * Math.max(1, (b.images || []).length); if (!b.skip && wordCount(b.narration) > limit) notes.push(`beat ${i + 1}: ${wordCount(b.narration)} words for ${Math.max(1, (b.images || []).length)} picture(s); keep it to ${limit} words or fewer (a picture stays on screen at most 9 seconds)`); });
-  return notes;
+  return [...notes, ...disputedClaimIssues(script)];
 }
 
 /**
@@ -340,4 +362,4 @@ async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3
   return script;
 }
 
-module.exports = { PROMPT_PASSAGE_CHARS, spokenForm, sourceSentences, allowedIn, evidenceFromIds, buildBeatPrompt, parseBeatReply, repairByDeletion, writeGroundedScript, storyForScript, reviewGrounded, buildPrompt, buildDescription, proseIssues, parseDraft, affectedBeats };
+module.exports = { PROMPT_PASSAGE_CHARS, spokenForm, sourceSentences, allowedIn, evidenceFromIds, buildBeatPrompt, parseBeatReply, repairByDeletion, writeGroundedScript, storyForScript, reviewGrounded, buildPrompt, buildDescription, proseIssues, disputedClaimIssues, parseDraft, affectedBeats };
