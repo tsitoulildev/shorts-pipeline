@@ -57,13 +57,15 @@ const quiet = { warn() {}, info() {} };
   await db.executeQuery("UPDATE story_pool SET status = 'rejected'"); // fewer than 30 untouched stories left: the refill runs
   const budgetPool = new StoryPool(db);
   let calls = 0;
+  let visionCalls = 0;
   const countedJudge = async (_beat, list) => { calls += 1; return list; };
   const now = new Date('2026-10-12T10:00:00Z');
   const before = Number(await db.getSetting('dh_llm_calls:2026-10-12')) || 0;
-  await refillPool({ pool: budgetPool, http: searchOnly, judge: countedJudge, visionJudge: async () => JSON.stringify({ mismatch: [] }), perWeek: 21, imageDir: path.join(dir, 'img'), candidates: ['Mary Celeste'], now, logger: quiet });
+  await refillPool({ pool: budgetPool, http: searchOnly, judge: countedJudge, visionJudge: async () => { visionCalls += 1; return JSON.stringify({ mismatch: [] }); }, perWeek: 21, imageDir: path.join(dir, 'img'), candidates: ['Mary Celeste'], now, logger: quiet });
   const after = Number(await db.getSetting('dh_llm_calls:2026-10-12')) || 0;
   assert.ok(calls > 0, 'the judge was called');
-  assert.equal(after - before, calls, 'the stored daily counter equals the judge calls made');
+  assert.ok(visionCalls > 0, 'the vision judge was called');
+  assert.equal(after - before, calls + visionCalls, 'the stored daily counter equals the relevance AND vision judge calls made');
 
   await db.close?.();
   fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
