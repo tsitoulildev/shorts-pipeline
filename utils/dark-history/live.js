@@ -7,7 +7,6 @@ const path = require('path');
 const { writeGroundedScript } = require('./grounded-writer');
 const { produceDocumentaryShort } = require('./produce');
 const { makeNarrator, narrationCommand } = require('./narration');
-const { allowedCadencePerWeek } = require('./story-pool');
 const { pruneNearDuplicates } = require('./dhash');
 const { ensureFootageFit } = require('./footage-fit');
 const { makeVisionJudge } = require('./image-fit');
@@ -182,10 +181,16 @@ function pruneOutput(root = OUTPUT_DIR, days = OUTPUT_KEEP_DAYS, now = Date.now(
   return removed;
 }
 
-/** The cadence the pool can sustain (the strategy's weekly target limited by the ready stories); 0 means nothing can be made. */
-async function sustainableCadence(pool, perWeek) {
+/** Most Shorts a day (DARK_HISTORY_MAX_PER_DAY, default 3). The 8 hour publish gate keeps the same bound at upload time. */
+const maxPerDay = () => (Number(process.env.DARK_HISTORY_MAX_PER_DAY) > 0 ? Math.floor(Number(process.env.DARK_HISTORY_MAX_PER_DAY)) : 3);
+
+/**
+ * The weekly cadence is the strategy's target capped at maxPerDay a day. The size of the pool NEVER lowers it (owner decision 2026-10-12):
+ * an empty pool (`empty`) makes the scheduler wait for the refill, it does not make the cadence slower.
+ */
+async function steadyCadence(pool, perWeek) {
   const status = await pool.status(perWeek);
-  return { ...status, perWeek: Math.min(perWeek, allowedCadencePerWeek(status.ready, perWeek)) };
+  return { ...status, empty: status.ready === 0, perWeek: Math.min(perWeek, maxPerDay() * 7) };
 }
 
-module.exports = { isLive, isDocumentary, buildProductionData, produceFromPool, releaseAfterFailure, pruneOutput, sustainableCadence, PIPELINE, OUTPUT_DIR, OUTPUT_KEEP_DAYS };
+module.exports = { isLive, isDocumentary, buildProductionData, produceFromPool, releaseAfterFailure, pruneOutput, steadyCadence, maxPerDay, PIPELINE, OUTPUT_DIR, OUTPUT_KEEP_DAYS };

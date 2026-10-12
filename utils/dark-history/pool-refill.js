@@ -1,4 +1,4 @@
-// Background job: research candidate events until the pool holds TARGET_DAYS of content. Free APIs only.
+// Background job (hourly): research candidate events while fewer than FRESH_TARGET untouched stories are ready. Free APIs only.
 // A story enters the pool only after: vetting (no living persons, >= 50 years old), licensed footage for every
 // beat (footage.js), and all images downloaded with their license record. Rejections are stored with the reason.
 const path = require('path');
@@ -10,15 +10,14 @@ const { downloadImage } = require('./commons');
 const { vetArticle } = require('./event-vetting');
 const { pruneNearDuplicates } = require('./dhash');
 const { ensureFootageFit } = require('./footage-fit');
-const { TARGET_DAYS } = require('./story-pool');
 const { storyReadiness } = require('./readiness');
 
 // Most stories need no judge call at all (editor-placed images suffice); a story that does needs about 8-12.
 const DAILY_LLM_CALLS = 300;
 // Untouched stories (never tried) the pool should hold: research goes on while fewer are left, even when the pool as a whole covers the target days
 // (stories that already failed once are most of what a "ready" count shows).
-const FRESH_TARGET = Number(process.env.DARK_HISTORY_FRESH_TARGET) || 8;
-const REFILL_BATCH = Number(process.env.DARK_HISTORY_REFILL_BATCH) || 8; // candidates researched per run (was 3: about 12 a day, half refused for lack of pictures)
+const FRESH_TARGET = Number(process.env.DARK_HISTORY_FRESH_TARGET) || 30;
+const REFILL_BATCH = Number(process.env.DARK_HISTORY_REFILL_BATCH) || 12; // candidates researched per hourly run (was 8 every 3 hours)
 const SKIP_TITLE = /^(list of|category:|template:|timeline of|outline of)/i;
 
 /** Titles from the vetted event list first, then members of the configured Wikipedia categories. */
@@ -65,7 +64,7 @@ async function researchOne(title, { pool, http, judge, imageDir, now, visionJudg
 }
 
 /**
- * refillPool({ pool, judge, notify, perWeek, imageDir }) -> { researched, ready, days, allowedPerWeek, low }.
+ * refillPool({ pool, judge, notify, perWeek, imageDir }) -> { researched, ready, days, low }.
  * Researches up to maxAttempts candidates per run (free-quota friendly) and alerts when the pool is low.
  */
 async function refillPool({ pool, http = defaultHttp, judge, visionJudge = null, readImage, notify, perWeek, imageDir, maxAttempts = REFILL_BATCH, candidates = null, dailyLlmCalls = Number(process.env.DARK_HISTORY_DAILY_LLM_CALLS) || DAILY_LLM_CALLS, now = new Date(), logger = console }) {
@@ -75,7 +74,7 @@ async function refillPool({ pool, http = defaultHttp, judge, visionJudge = null,
   const budgetKey = `dh_llm_calls:${now.toISOString().slice(0, 10)}`;
   let spent = Number(await pool.db.getSetting(budgetKey)) || 0;
   const countingJudge = judge && (async (...args) => { spent += 1; await pool.db.setSetting(budgetKey, String(spent)); return judge(...args); });
-  if ((await pool.status(perWeek)).low || (await pool.untouchedCount()) < FRESH_TARGET) {
+  if ((await pool.untouchedCount()) < FRESH_TARGET) {
     for (const title of candidates || await nextCandidates(await pool.knownTitles(), maxAttempts, http)) {
       if (spent >= dailyLlmCalls) { budgetExhausted = true; logger.warn?.(`story pool: daily LLM budget (${dailyLlmCalls} calls) spent, research resumes tomorrow`); break; }
       researched += 1;
@@ -95,8 +94,8 @@ async function refillPool({ pool, http = defaultHttp, judge, visionJudge = null,
       type: 'story_pool_low',
       level: status.ready === 0 ? 'error' : 'warning',
       title: `Story pool low: ${status.ready} ready (${status.days.toFixed(1)} days)`,
-      message: `The Dark History pool holds ${status.ready} stories, ${status.days.toFixed(1)} days at ${perWeek}/week (target ${TARGET_DAYS} days). Cadence is limited to ${status.allowedPerWeek}/week until it refills. The refill job keeps researching; if this persists check the candidate list and the free-LLM quota.`,
-      data: { ready: status.ready, days: status.days, allowedPerWeek: status.allowedPerWeek },
+      message: `The Dark History pool holds ${status.ready} ready stories (${status.days.toFixed(1)} days at ${perWeek}/week). The cadence is NOT lowered; only an empty pool makes production wait for the refill. The refill job keeps researching; if this persists check the candidate list and the free-LLM quota.`,
+      data: { ready: status.ready, days: status.days },
       dedupeKey: 'story_pool_low',
       dedupeMinutes: 720
     });

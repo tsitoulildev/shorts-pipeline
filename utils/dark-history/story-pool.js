@@ -2,8 +2,8 @@
 // ready to be turned into a Short. Backed by one SQLite table (created on first use).
 const crypto = require('crypto');
 
-// Days of stories the pool should hold; DARK_HISTORY_POOL_HORIZON_DAYS overrides it (unset or invalid: 14).
-const TARGET_DAYS = Number(process.env.DARK_HISTORY_POOL_HORIZON_DAYS) > 0 ? Number(process.env.DARK_HISTORY_POOL_HORIZON_DAYS) : 14;
+// The pool is "low" (alert only, never a slower cadence) when fewer ready stories than this are left (about two days at 3 Shorts a day).
+const LOW_READY = Number(process.env.DARK_HISTORY_POOL_LOW_READY) > 0 ? Number(process.env.DARK_HISTORY_POOL_LOW_READY) : 7;
 // a story whose production failed this many times is rejected for good (with the last reason) instead of looping every tick
 const MAX_ATTEMPTS = 3;
 // after this many failures a story is parked ('quarantine') and only taken again when no fresh story is left and QUARANTINE_HOURS have passed
@@ -12,16 +12,6 @@ const QUARANTINE_HOURS = 24;
 
 /** Days of content the ready stories cover at the given cadence (stories per week). */
 const poolDays = (ready, perWeek) => (perWeek > 0 ? (ready * 7) / perWeek : Infinity);
-
-/**
- * Cadence the pool can sustain: the full target while >= horizonDays are in stock, otherwise the ready
- * stories are spread over the horizon (never below 1/week while anything is ready, 0 when empty).
- */
-function allowedCadencePerWeek(ready, perWeek, horizonDays = TARGET_DAYS) {
-  if (ready <= 0) return 0;
-  if (poolDays(ready, perWeek) >= horizonDays) return perWeek;
-  return Math.max(1, Math.min(perWeek, Math.floor((ready * 7) / horizonDays)));
-}
 
 class StoryPool {
   constructor(db) { this.db = db; this.created = false; }
@@ -104,8 +94,8 @@ class StoryPool {
   async status(perWeek) {
     const ready = await this.readyCount();
     const days = poolDays(ready, perWeek);
-    return { ready, days, allowedPerWeek: allowedCadencePerWeek(ready, perWeek), low: days < TARGET_DAYS };
+    return { ready, days, low: ready < LOW_READY };
   }
 }
 
-module.exports = { StoryPool, poolDays, allowedCadencePerWeek, TARGET_DAYS, MAX_ATTEMPTS, QUARANTINE_AFTER, QUARANTINE_HOURS };
+module.exports = { StoryPool, poolDays, LOW_READY, MAX_ATTEMPTS, QUARANTINE_AFTER, QUARANTINE_HOURS };

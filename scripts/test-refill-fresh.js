@@ -22,7 +22,8 @@ const missing = { ...fixtureHttp, getJson: async (url, params) => (params?.title
   db.dbPath = path.join(dir, 'test.db');
   await db.initialize();
   const pool = new StoryPool(db);
-  const stock = async (n, attempts) => { for (let i = 0; i < n; i += 1) { const id = await pool.add({ title: `Stock ${attempts}-${i}`, status: 'ready', plan: { beats: [] }, attribution: 'x' }); await db.executeQuery('UPDATE story_pool SET attempts = ? WHERE id = ?', [attempts, id]); } };
+  let seq = 0;
+  const stock = async (n, attempts) => { for (let i = 0; i < n; i += 1) { const id = await pool.add({ title: `Stock ${attempts}-${seq += 1}`, status: 'ready', plan: { beats: [] }, attribution: 'x' }); await db.executeQuery('UPDATE story_pool SET attempts = ? WHERE id = ?', [attempts, id]); } };
 
   // 60 ready stories, all failed once: the pool "covers" the days, but nothing fresh is left: research goes on
   await stock(60, 1);
@@ -33,10 +34,16 @@ const missing = { ...fixtureHttp, getJson: async (url, params) => (params?.title
   const refused = await db.getRow("SELECT status, reason FROM story_pool WHERE title = 'Nothing Known'");
   assert.deepEqual([refused.status, refused.reason], ['rejected', 'article not found']);
   assert.ok((await pool.knownTitles()).has('nothing known'), 'not asked for again');
-  // enough untouched stories: no research
+  // 10 untouched stories are below the target of 30: research goes on (the refill is about untouched stories, not about days of stock)
   await stock(10, 0);
-  const idle = await refillPool({ pool, http: missing, visionJudge: allFit, perWeek: 21, imageDir: path.join(dir, 'img2'), candidates: ['Tunguska event'], logger: quiet });
-  assert.equal(idle.researched, 0, '10 untouched stories are enough');
+  const below = await refillPool({ pool, http: missing, visionJudge: allFit, perWeek: 21, imageDir: path.join(dir, 'img2'), candidates: ['Tunguska event'], logger: quiet });
+  assert.equal(below.researched, 1, '10 untouched stories are below the target of 30');
+  // the target is reached (Tunguska itself may have entered as one more untouched story): no research
+  const untouched = await pool.untouchedCount();
+  await stock(Math.max(0, 30 - untouched), 0);
+  assert.ok(await pool.untouchedCount() >= 30);
+  const idle = await refillPool({ pool, http: missing, visionJudge: allFit, perWeek: 21, imageDir: path.join(dir, 'img3'), candidates: ['Mary Celeste'], logger: quiet });
+  assert.equal(idle.researched, 0, '30 untouched stories are enough');
   await db.close?.();
   fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   console.log('refill fresh: ok');
