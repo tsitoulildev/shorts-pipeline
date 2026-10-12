@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const { Database } = require('../database/db');
 const { fixtureHttp } = require('./dark-history-probe');
-const { StoryPool, poolDays, allowedCadencePerWeek } = require('../utils/dark-history/story-pool');
+const { StoryPool, poolDays, LOW_READY } = require('../utils/dark-history/story-pool');
 const { vetArticle } = require('../utils/dark-history/event-vetting');
 const { refillPool } = require('../utils/dark-history/pool-refill');
 const config = require('../config/dark-history-events.json');
@@ -25,13 +25,9 @@ const article = (extract, categories = []) => ({ extract, categories });
   assert.match(vetArticle(article('Born in 1950.', ['Category:Living people']), now).reason, /living/);
   assert.strictEqual(vetArticle(article('It was 1900.', ['Category:Disambiguation pages']), now).ok, false);
 
-  // Cadence slow-down: 28/week needs 56 stories for 14 days; fewer stories spread over the horizon.
+  // The pool only reports days of stock and a "low" flag (an alert); it has no say in the cadence.
   assert.strictEqual(poolDays(56, 28), 14);
-  assert.strictEqual(allowedCadencePerWeek(56, 28), 28);
-  assert.strictEqual(allowedCadencePerWeek(100, 28), 28);
-  assert.strictEqual(allowedCadencePerWeek(28, 28), 14);
-  assert.strictEqual(allowedCadencePerWeek(1, 28), 1);
-  assert.strictEqual(allowedCadencePerWeek(0, 28), 0);
+  assert.strictEqual(LOW_READY, 7);
 
   // The configured list is clean: unique titles, enough to fill a 14-day pool at 28/week once vetted.
   assert.strictEqual(new Set(config.events.map(e => e.toLowerCase())).size, config.events.length);
@@ -63,12 +59,13 @@ const article = (extract, categories = []) => ({ extract, categories });
   const rejected = await db.getRow("SELECT reason FROM story_pool WHERE title = 'Living Person'");
   assert.match(rejected.reason, /living person/);
 
-  // Low pool: alert once-per-window key, error level only when empty, cadence limited.
+  // Low pool: alert once-per-window key, error level only when empty, nothing about a slower cadence.
   assert.strictEqual(alerts.length, 1);
   assert.strictEqual(alerts[0].type, 'story_pool_low');
   assert.strictEqual(alerts[0].level, 'warning');
   assert.strictEqual(alerts[0].dedupeKey, 'story_pool_low');
-  assert.strictEqual(result.allowedPerWeek, 1);
+  assert.strictEqual(result.allowedPerWeek, undefined, 'the pool no longer limits the cadence');
+  assert.doesNotMatch(alerts[0].message, /limited to/);
 
   // Daily free-tier budget: with no calls left nothing is researched, and the spend is stored per day.
   const calls = [];
@@ -137,13 +134,3 @@ const article = (extract, categories = []) => ({ extract, categories });
   fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   console.log('story pool tests passed');
 })().catch(error => { console.error(error); process.exit(1); });
-
-// The pool horizon: 14 days by default, DARK_HISTORY_POOL_HORIZON_DAYS overrides it, a bad value falls back to 14.
-{
-  const { execFileSync } = require('child_process');
-  const horizon = value => Number(execFileSync(process.execPath, ['-e', "console.log(require('./utils/dark-history/story-pool').TARGET_DAYS)"], { cwd: path.join(__dirname, '..'), env: { ...process.env, DARK_HISTORY_POOL_HORIZON_DAYS: value } }).toString().trim());
-  assert.strictEqual(horizon(''), 14);
-  assert.strictEqual(horizon('7'), 7);
-  assert.strictEqual(horizon('abc'), 14);
-  assert.strictEqual(horizon('-3'), 14);
-}

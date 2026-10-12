@@ -439,7 +439,7 @@ function makeLlm(mode = { writer: 'ok' }) {
     await db.executeQuery("UPDATE story_pool SET status = 'rejected' WHERE status = 'ready'");
   }
 
-  // ---- cadence: the pool limits what the scheduler asks for (and flag off ignores the pool) ----
+  // ---- cadence: steady whatever the pool holds, an empty pool waits (and flag off ignores the pool) ----
   {
     await db.executeQuery("UPDATE story_pool SET status = 'rejected'");
     const alreadyDone = (await db.getRow("SELECT COUNT(*) AS n FROM generation_jobs WHERE status = 'completed'")).n; // the two Shorts made above count too
@@ -463,14 +463,12 @@ function makeLlm(mode = { writer: 'ok' }) {
     process.env.DARK_HISTORY_LIVE = 'true';
     assert.strictEqual(await scheduler.shouldGenerateContentToday(), false);
     assert.match(scheduler.lastSkipReason, /story pool is empty/);
-    for (let i = 0; i < 14; i += 1) await pool.add({ title: `Stock ${i}`, status: 'ready', plan: { beats: [] }, attribution: 'x' });
-    assert.strictEqual(await scheduler.shouldGenerateContentToday(), false, '14 stories last 14 days at 7 a week: the 7 already made use the weekly allowance');
-    assert.match(scheduler.lastSkipReason, /weekly target reached \(7\/7/);
-    for (let i = 14; i < 42; i += 1) await pool.add({ title: `Stock ${i}`, status: 'ready', plan: { beats: [] }, attribution: 'x' });
-    assert.strictEqual(await scheduler.shouldGenerateContentToday(), true, '42 stories: the full 21 a week is allowed');
+    await pool.add({ title: 'Stock 0', status: 'ready', plan: { beats: [] }, attribution: 'x' });
+    assert.strictEqual(await scheduler.shouldGenerateContentToday(), true, 'one ready story: the pool size never lowers the cadence (the full 21 a week)');
+    assert.strictEqual(scheduler.lastSkipReason, null);
   }
 
-  // ---- the stall watchdog expects the pool-limited pace while live, and leaves an empty pool to its own alert ----
+  // ---- the stall watchdog expects the steady pace while live, and leaves an empty pool to its own alert ----
   {
     await db.executeQuery("UPDATE story_pool SET status = 'rejected'");
     const alerts = [];
@@ -491,7 +489,7 @@ function makeLlm(mode = { writer: 'ok' }) {
     assert.strictEqual(alerts.length, 0);
     for (let i = 0; i < 3; i += 1) await pool.add({ title: `Slow ${i}`, status: 'ready', plan: { beats: [] }, attribution: 'x' });
     const slow = await stall.checkProductionStall();
-    assert.ok(slow === null || slow.limitHours >= 100, '3 stories last 14 days at 1.5 a week: a 40 h gap is no stall (limit ' + (slow && slow.limitHours) + ' h)');
+    assert.ok(slow && slow.limitHours <= 16, 'a pool with stories in it does not slow the pace: a 40 h gap is a stall at the steady cadence (limit ' + (slow && slow.limitHours) + ' h)');
     await db.executeQuery("UPDATE story_pool SET status = 'rejected'");
   }
 

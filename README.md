@@ -52,6 +52,7 @@ Everything is configured through `.env` (copy `.env.example`; every key is expla
 | `YOUTUBE_UPLOAD_ENABLED` | Master switch for uploads. Off unless you turn it on. |
 | `APPROVAL_REQUIRED`, `AUTONOMOUS_MODE`, `AUTOMATION_PAUSED` | Who decides what is published. |
 | `DARK_HISTORY_POOL_ENABLED`, `DARK_HISTORY_DAILY_LLM_CALLS` | The background story research and its daily free-tier call budget. Off by default. |
+| `DARK_HISTORY_MAX_PER_DAY`, `DARK_HISTORY_FRESH_TARGET`, `DARK_HISTORY_REFILL_BATCH`, `DARK_HISTORY_POOL_LOW_READY` | At most 3 Shorts a day (the pool size never lowers it; an empty pool waits for the refill). The hourly refill researches `DARK_HISTORY_REFILL_BATCH` (12) candidates while fewer than `DARK_HISTORY_FRESH_TARGET` (30) untouched stories are ready. `story_pool_low` is an alert only, below `DARK_HISTORY_POOL_LOW_READY` (7) ready stories. |
 | `DARK_HISTORY_LIVE` | Makes every scheduled Short a Dark History Short (and runs the pool refill). Off by default; switching it back and restarting returns to the old path. |
 | `DARK_HISTORY_VOICE` | The narration voice, a public-domain Piper voice only (`en_US-ljspeech-high` by default). |
 | `DARK_HISTORY_PRODUCTION_ENABLED` | Allows the manual render script to run. Off by default. |
