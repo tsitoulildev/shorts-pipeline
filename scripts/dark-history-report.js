@@ -16,5 +16,7 @@ const { YieldStats } = require('../utils/dark-history/yield-stats');
   for (const row of report.models) console.log(`${row.day} ${row.role.padEnd(9)} ${row.model.padEnd(52)} ${row.ok} ${row.failed} ${row.timeout} ${row.empty} ${row.rate_limited}`);
   console.log('\nREJECTION CAUSES (day n cause)');
   for (const row of report.causes) console.log(`${row.day} ${String(row.n).padStart(3)} ${row.cause}`);
+  console.log('\nHOURLY CHECKS (hour attempts successes 429 queue cap throttled calls per provider)');
+  for (const row of report.hourly || []) console.log(`${row.hour} ${row.attempts} ${row.successes} ${row.r429} ${row.queue} ${row.cap} ${row.throttled ? 'THROTTLED' : '-'} ${row.calls}`);
   process.exit(0);
 })().catch(error => { console.error(error.message); process.exit(1); });

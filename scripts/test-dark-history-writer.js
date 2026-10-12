@@ -136,11 +136,13 @@ const fitOk = { judge: async () => JSON.stringify({ mismatch: [] }), readImage: 
   assert.strictEqual(recheck(skipped, used).passed, true);
   assert.strictEqual(recheck(skipped, story).passed, false);
 
-  // A reply that is not the JSON asked for is asked once more; a second bad reply loses the attempt (nothing is invented).
+  // A reply that is not the JSON asked for is asked again (up to 3 tries); a third bad reply loses the attempt (nothing is invented).
   let replies2 = ['{"title":"x"}', JSON.stringify(draft(faithful))];
   const flaky = { generateText: async prompt => (/strict fact-checker/.test(prompt) ? JSON.stringify(clean) : replies2.shift()) };
   assert.strictEqual((await writeGroundedScript({ story, imageFit: fitOk, llm: flaky, maxRevisions: 0 })).beats.length, faithful.length);
   replies2 = ['{"title":"x"}', 'not json', JSON.stringify(draft(faithful))];
+  assert.strictEqual((await writeGroundedScript({ story, imageFit: fitOk, llm: flaky, maxRevisions: 0 })).beats.length, faithful.length, 'two bad replies, the third is good');
+  replies2 = ['{"title":"x"}', 'not json', 'still not json', JSON.stringify(draft(faithful))];
   await assert.rejects(() => writeGroundedScript({ story, imageFit: fitOk, llm: flaky, maxRevisions: 0 }), /no title.beats|JSON/i);
 
   // Picture fit: a vision model looks at the pictures with the narrations (one request, all beats). Seen on the VM: a waterspout photo

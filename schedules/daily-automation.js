@@ -3,10 +3,16 @@ const { Logger } = require('../utils/logger');
 const channelIdentity = require('../utils/channel-identity');
 const { isLive, pruneOutput, steadyCadence } = require('../utils/dark-history/live');
 const { StoryPool } = require('../utils/dark-history/story-pool');
+const { YieldStats } = require('../utils/dark-history/yield-stats');
 
 // Dark History check: every hour at minute 40, which sits between every other job (:00 :15 :20 :30 :45). A check that finds the queue full costs nothing; one that
 // finds it short produces a Short, and a failed attempt is tried again an hour later with the next story.
 const DEFAULT_SLOT_CRON = '40 * * * *';
+// Attempts in a row per hourly check while the queue is short (the story pool gives the next story each time; one at a time, never in parallel). The first success ends the check.
+const MAX_ATTEMPTS_PER_SLOT = () => (Number(process.env.DARK_HISTORY_MAX_ATTEMPTS_PER_SLOT) >= 1 ? Math.floor(Number(process.env.DARK_HISTORY_MAX_ATTEMPTS_PER_SLOT)) : 3);
+// The limiter: when one attempt meets this many rate limits (429), or this share of its calls, the check stops and the next one makes a single attempt until an attempt stays below it.
+const RATE_LIMIT_STOP = 3;
+const RATE_LIMIT_SHARE = 0.15;
 const DEFAULT_QUEUE_AHEAD = 5; // Shorts kept scheduled ahead (the publish cadence guard spaces them 8 h apart: about 40 hours)
 
 class DailyAutomation {
@@ -27,6 +33,8 @@ class DailyAutomation {
     this.lastSkipReason = null;
     this.lastReadinessSelfHealAt = 0;
     this.llmLane = Promise.resolve();
+    this.waitForJob = options.waitForJob || null;
+    this.slotRunning = false;
   }
 
   /** LLM-heavy jobs (a slot, a pool refill) run one after the other, never at the same time, so the per-minute limits are respected. */
@@ -55,7 +63,7 @@ class DailyAutomation {
     const slotCron = String(process.env.DARK_HISTORY_SLOT_CRON || '').trim();
     const generationTick = async () => {
       if (this.isEnabled) {
-        await this.inLlmLane(() => this.runDailyContentGeneration());
+        await this.inLlmLane(() => (isLive() ? this.runLiveSlot() : this.runDailyContentGeneration()));
       }
     };
     this.scheduledTasks.set('cadence-content-generation', isLive()
@@ -171,6 +179,48 @@ class DailyAutomation {
     this.ensureRecentBackup().catch(() => {});
   }
 
+  /**
+   * Dark History hourly check: while the queue is short, up to DARK_HISTORY_MAX_ATTEMPTS_PER_SLOT (3) attempts in a row, one at a time, each with the next story; the first
+   * success ends the check. Nothing in the quality gates changes: every attempt is a full production. The 429 limiter drops the next check to a single attempt when an attempt
+   * meets RATE_LIMIT_STOP rate limits or RATE_LIMIT_SHARE of its calls, and restores it after an attempt below that. One row per check goes to dh_hourly.
+   */
+  async runLiveSlot() {
+    const stats = this.yieldStats || (this.yieldStats = new YieldStats(this.db));
+    const max = MAX_ATTEMPTS_PER_SLOT();
+    const cap = (await this.db.getSetting('dh_attempt_cap')) === '1' ? 1 : max;
+    const start = await stats.totals();
+    let last = start;
+    let attempts = 0;
+    let successes = 0;
+    let throttled = false;
+    this.slotRunning = true;
+    try {
+      while (attempts < cap) {
+        const job = await this.runDailyContentGeneration();
+        if (!job) break;
+        attempts += 1;
+        const done = this.waitForJob ? await this.waitForJob(job.id) : null;
+        const now = await stats.totals();
+        const d429 = now.r429 - last.r429;
+        const dCalls = now.calls - last.calls;
+        last = now;
+        if (d429 >= RATE_LIMIT_STOP || (dCalls >= 10 && d429 / dCalls >= RATE_LIMIT_SHARE)) throttled = true;
+        if (!done || done.status !== 'failed') { if (done && done.status === 'completed') successes += 1; break; }
+        if (throttled) {
+          this.logger.warn(`Dark History: ${d429} rate limits in ${dCalls} calls during the last attempt; the next checks make a single attempt`);
+          break;
+        }
+      }
+    } finally {
+      this.slotRunning = false;
+    }
+    await this.db.setSetting('dh_attempt_cap', throttled ? '1' : String(max));
+    const calls = {};
+    for (const [provider, n] of Object.entries(last.byProvider)) if (n - (start.byProvider[provider] || 0) > 0) calls[provider] = n - (start.byProvider[provider] || 0);
+    await stats.hourly({ hour: new Date().toISOString().slice(0, 13), attempts, successes, r429: last.r429 - start.r429, calls, queue: await this.scheduledAhead(), cap, throttled });
+    return { attempts, successes, throttled, cap };
+  }
+
   async runDailyContentGeneration() {
     try {
       this.logger.info('Starting daily content generation...');
@@ -204,6 +254,7 @@ class DailyAutomation {
       timer.end();
       this.logger.success(`Daily content generation queued: ${job.id}`);
       await this.logAutomationEvent('daily_content_generation', 'queued', { jobId: job.id });
+      return job;
     } catch (error) {
       this.logger.error('Daily content generation failed:', error);
       
