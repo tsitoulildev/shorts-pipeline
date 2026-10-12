@@ -51,6 +51,37 @@ async function main() {
   } finally { cron.schedule = realSchedule; }
   assert.deepEqual(tasks, ['40 * * * *', '40 * * * *', '10 4,12,20 * * *', '0 */2 * * *']);
 
+  // The daily-output alert is registered only when live, at 18:00 UTC; it only alerts (fewer than 2 Shorts published or scheduled for today), once per day, with the rejection causes.
+  {
+    const registered = [];
+    cron.schedule = (expression, fn, opts) => { registered.push([expression, opts && opts.timezone]); return realSchedule.call(cron, expression, fn, opts); };
+    try {
+      for (const live of ['true', 'false']) {
+        process.env.DARK_HISTORY_LIVE = live; registered.length = 0;
+        const s2 = makeScheduler();
+        await s2.setupScheduledTasks.call(Object.assign(s2, { ensureRecentBackup: async () => {} }));
+        s2.scheduledTasks.forEach(task => task.stop());
+        assert.equal(registered.some(([expression, zone]) => expression === '0 18 * * *' && zone === 'UTC'), live === 'true', 'live: the 18:00 UTC check exists; not live: it does not');
+      }
+    } finally { cron.schedule = realSchedule; }
+    const alerts = [];
+    const checker = count => {
+      const c = makeScheduler();
+      c.notify = async alert => alerts.push(alert);
+      c.db = { getAllRows: async sql => (/FROM publish_schedule/.test(sql) ? [{ n: count }] : /FROM dh_rejections/.test(sql) ? [{ cause: 'picture does not fit', n: 4 }] : []) };
+      return c;
+    };
+    const now = new Date('2026-10-12T18:00:00Z');
+    assert.deepEqual(await checker(2).checkDailyOutput(now), { day: '2026-10-12', count: 2, alerted: false });
+    assert.equal(alerts.length, 0, '2 Shorts: no alert');
+    assert.deepEqual(await checker(1).checkDailyOutput(now), { day: '2026-10-12', count: 1, alerted: true });
+    assert.equal(alerts.length, 1);
+    assert.equal(alerts[0].type, 'dark_history_low_daily_output');
+    assert.equal(alerts[0].dedupeKey, 'dark_history_low_daily_output:2026-10-12');
+    assert.match(alerts[0].message, /1 Shorts are published or scheduled for 2026-10-12 UTC.*picture does not fit 4/);
+    assert.match(alerts[0].message, /No gate is relaxed/);
+  }
+
   // Live: Shorts are made ahead. Fewer than 5 scheduled (DARK_HISTORY_QUEUE_AHEAD, default 5) = a Short is made at this check, whatever the last one was; 5 = nothing is spent.
   process.env.DARK_HISTORY_LIVE = 'true';
   delete process.env.DARK_HISTORY_QUEUE_AHEAD;
