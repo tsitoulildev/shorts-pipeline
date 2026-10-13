@@ -51,6 +51,23 @@ async function main() {
   } finally { cron.schedule = realSchedule; }
   assert.deepEqual(tasks, ['40 * * * *', '40 * * * *', '10 4,12,20 * * *', '0 */2 * * *']);
 
+  // The values the running process uses are shown (dashboard and startup log): queue ahead 5 by default, 7 when DARK_HISTORY_QUEUE_AHEAD says so.
+  {
+    process.env.DARK_HISTORY_LIVE = 'true';
+    delete process.env.DARK_HISTORY_QUEUE_AHEAD;
+    assert.deepEqual(makeScheduler().darkHistorySettings(), { live: true, queueAhead: 5, maxAttemptsPerSlot: 3, maxPerDay: 3 });
+    process.env.DARK_HISTORY_QUEUE_AHEAD = '7';
+    assert.equal(makeScheduler().darkHistorySettings().queueAhead, 7);
+    const logged = [];
+    const shown = makeScheduler();
+    shown.logger = { ...silent, info: message => logged.push(message) };
+    shown.setupScheduledTasks = async () => {};
+    shown.startMonitoringLoop = () => {};
+    await shown.initialize();
+    assert.ok(logged.some(message => /Dark History settings in use: .*"queueAhead":7/.test(message)), logged.join(' | '));
+    delete process.env.DARK_HISTORY_QUEUE_AHEAD;
+  }
+
   // The daily-output alert is registered only when live, at 18:00 UTC; it only alerts (fewer than 2 Shorts published or scheduled for today), once per day, with the rejection causes.
   {
     const registered = [];

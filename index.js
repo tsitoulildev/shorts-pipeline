@@ -584,6 +584,7 @@ class YouTubeAutomationAgent {
             uptime: process.uptime(),
             // a Dark History slot between two attempts has no job for a moment: it still counts, so a deploy never restarts inside it
             activeJobs: this.activeJobs.size + (this.scheduler?.slotRunning ? 1 : 0),
+            darkHistory: this.scheduler?.darkHistorySettings?.() || null,
             automationPaused: this.scheduler ? !this.scheduler.isEnabled : true,
             // Effective controls (environment wins over stored settings), for operators and verifiers.
             control: await resolveControlState(this.db),
@@ -2054,6 +2055,7 @@ class YouTubeAutomationAgent {
           message: `${productionData.script.title} is ready for approval`, data: { contentId, qualityScore: quality.score }
         });
       }
+      await this.getYieldStats().uncertainBlocked(productionData.script?.metadata?.creativeReview?.attempts).catch(() => {});
       return {
         contentId,
         title: productionData.script.title,

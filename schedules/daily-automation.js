@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const { Logger } = require('../utils/logger');
 const channelIdentity = require('../utils/channel-identity');
-const { isLive, pruneOutput, steadyCadence } = require('../utils/dark-history/live');
+const { isLive, pruneOutput, steadyCadence, maxPerDay } = require('../utils/dark-history/live');
 const { StoryPool } = require('../utils/dark-history/story-pool');
 const { YieldStats } = require('../utils/dark-history/yield-stats');
 
@@ -44,8 +44,19 @@ class DailyAutomation {
     return run;
   }
 
+  /** Shorts kept scheduled ahead (DARK_HISTORY_QUEUE_AHEAD, default 5): the value the running process uses. */
+  queueAhead() {
+    return Math.max(1, Number(process.env.DARK_HISTORY_QUEUE_AHEAD) || DEFAULT_QUEUE_AHEAD);
+  }
+
+  /** What the dashboard and the startup log show for Dark History (the live values, not the file). */
+  darkHistorySettings() {
+    return { live: isLive(), queueAhead: this.queueAhead(), maxAttemptsPerSlot: MAX_ATTEMPTS_PER_SLOT(), maxPerDay: maxPerDay() };
+  }
+
   async initialize() {
     this.logger.info('Initializing daily automation scheduler...');
+    if (isLive()) this.logger.info(`Dark History settings in use: ${JSON.stringify(this.darkHistorySettings())}`);
     
     await this.setupScheduledTasks();
     
@@ -382,7 +393,7 @@ class DailyAutomation {
       if (isLive()) {
         // Dark History produces AHEAD: while fewer than DARK_HISTORY_QUEUE_AHEAD Shorts are scheduled, a Short is made at every check (the weekly target above and
         // the publish cadence guard still bound what is published); with the queue full nothing is spent.
-        const ahead = Math.max(1, Number(process.env.DARK_HISTORY_QUEUE_AHEAD) || DEFAULT_QUEUE_AHEAD);
+        const ahead = this.queueAhead();
         const queued = await this.scheduledAhead();
         if (queued >= ahead) {
           this.lastSkipReason = `queue full: ${queued} Shorts are scheduled (target ${ahead}, about ${Math.round(queued * 168 / target)} h ahead)`;
