@@ -60,10 +60,21 @@ if [[ -n "${ROLLOUT_CADENCE:-}" ]]; then
   node scripts/set-cadence.js "$ROLLOUT_CADENCE"
 fi
 
+# Never restart between :38 and :50 UTC: the hourly Dark History check starts at :40 and a restart inside it kills the running job (a Short that had passed review was lost on 2026-10-12).
+production_window_wait_seconds() {
+  local minute=$((10#$1)) second=$((10#$2))
+  if (( minute >= 38 && minute < 50 )); then echo $(( (50 - minute) * 60 - second )); else echo 0; fi
+}
+
 # A running node process keeps the old code in memory, so restart when the code or the
 # unit changed, but never in the middle of a production run.
 restarted=false
 if [[ "$before" != "$after" || "$running_commit" != "$after" || "$unit_changed" == "true" ]]; then
+  window_wait="$(production_window_wait_seconds "$(date -u +%M)" "$(date -u +%S)")"
+  if (( window_wait > 0 )); then
+    echo "Inside the production window (:38-:50 UTC); waiting ${window_wait}s before the restart"
+    sleep "$window_wait"
+  fi
   idle=false
   for _ in $(seq 1 60); do
     active="$(curl --silent --max-time 5 http://127.0.0.1:3456/api/dashboard 2>/dev/null |

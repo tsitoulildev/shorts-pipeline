@@ -8,6 +8,8 @@ const { attributionText } = require('./attribution');
 const { checkImageFit, describePictures, makeVisionJudge } = require('./image-fit');
 
 // ljspeech speaks about 2 words a second (measured on the VM: 132 words = 64.7 s); the gate allows 60 s
+// What the fact-checker rejected most often on the VM (numbers, dates and names that are not in the cited sentence, two facts merged, the source's wording made stronger).
+const SOURCE_FIDELITY = 'Use a number, year, date or name ONLY if it is written in the very sentence you cite for that beat; if you are not sure, leave it out. Never merge two facts from different sentences into one claim. Never say who did something when the sentence says only "he", "she" or "they". Never make the source stronger: a "young woman" is not a "teenage girl", and "possibly", "may have" or "is said to" stay in the sentence. Every narrated beat MUST list evidence_ids (1-3): a beat without them is rejected unread.';
 const WORDS = { min: 70, max: 100, beatMin: 9, beatMax: 18, perPictureMax: 18 }; // perPictureMax: a picture is shown for at most 9 s (+0.6); the live Shorts speak 1.92-2.37 words a second, so 21 words can take 10.9 s and 18 words at most 9.4 s
 const PASS_SCORE = 7;
 const ART_STYLE = /\b(stick ?man|stick figure|stickmen|animation|cartoon|drawing)\b/i;
@@ -75,6 +77,7 @@ HARD RULES (a fact-checker rejects the whole script if one is broken):
 - Write exactly ${story.plan.beats.length} entries, one per source passage below, in order. You may skip a passage that adds nothing to the story: write {"skip":true} for it and its picture is left out (skip at most one passage; at least 4 beats must stay narrated, and the story must still make sense in order). ${WORDS.beatMin}-${WORDS.beatMax} spoken words per beat, ${WORDS.min}-${WORDS.max} words in total (the voice speaks about two words a second and the Short must stay under 60 seconds).
 - Narrate ONLY what is stated in the source. No invented detail, emotion, motive, dialogue, name, number or place. A theory must be attributed ("investigators suspected...").
 - Every beat lists "evidence_ids": 1-3 ids of the numbered SOURCE SENTENCES that state the facts of its narration (for the hook, ids of the lead sentences, L.1, L.2 ...). You copy nothing: the program copies the cited sentences as the evidence. Numbers, years, names and counts in the narration must be in the sentences you cite: each beat lists what its sentences contain after ALLOWED, and nothing outside that list may appear. Write every number, year and date as digits exactly as the source has them (1872, not "eighteen seventy-two"; December 4, not "the fourth"). A count written as a word (two, eight, twenty) is allowed only when that word or its digit is in a cited sentence, otherwise leave the count out. Cite the sentence that really contains each fact you use.
+- ${SOURCE_FIDELITY}
 - Short sentences (under 20 words), no semicolons or dashes, plain ASCII. Past tense. Never mention drawings, animation or the video.
 
 ARTICLE LEAD SENTENCES (for the hook, cite as L.n):
@@ -172,6 +175,8 @@ function proseIssues(script) {
  * relaxed: the repaired script goes through the same fact-check and picture check again.
  */
 const MIN_BEAT_WORDS = 8;
+const MAX_FULL_TRIES = 3; // a full-script reply that is cut off or unusable is asked for up to 3 times (another model each time) before the attempt is lost
+const SKIP_AFTER_NAMINGS = 3; // a beat the review names 3 reviews in a row (it was rewritten twice and still fails) is skipped, never relaxed: the whole script is reviewed again without it
 function repairByDeletion(script, story, facts) {
   const flagged = new Set((facts.unsupported || []).map(item => `${item.beat}.${item.sentence}`));
   const extract = norm(story.plan.extract);
@@ -246,7 +251,7 @@ function buildBeatPrompt(story, named, brief, previous, shows) {
   const rest = previous.beats.map((b, i) => (named.has(i + 1) ? null : (b.skip ? 'Beat ' + (i + 1) + ': (skipped)' : 'Beat ' + (i + 1) + ': ' + b.narration))).filter(Boolean).join('\n');
   return 'You are fixing single beats of the narration of a true-story YouTube Short about "' + story.plan.title + '". The voice is a calm documentary narrator.\n\n'
     + (othersNarrated < 4 ? 'You may NOT skip a beat in this request: only ' + othersNarrated + ' other beats are narrated and at least 4 must be. ' : 'You may skip a beat (write {"skip":true}) only if its source sentences hold nothing about what the picture shows. ')
-    + 'Rules: narrate ONLY what the cited source sentences state; every number, year, name and count must be in a sentence you cite (see ALLOWED), numbers as digits; ' + WORDS.beatMin + '-' + WORDS.beatMax + ' spoken words per beat; short sentences, no semicolons or dashes, plain ASCII, past tense; the narration must be about what the beat\'s picture shows, or write {"skip":true} for the beat. Cite 1-3 sentence ids per beat; you copy nothing, the program copies the sentences.\n\n'
+    + 'Rules: ' + SOURCE_FIDELITY + ' Narrate ONLY what the cited source sentences state; every number, year, name and count must be in a sentence you cite (see ALLOWED), numbers as digits; ' + WORDS.beatMin + '-' + WORDS.beatMax + ' spoken words per beat; short sentences, no semicolons or dashes, plain ASCII, past tense; the narration must be about what the beat\'s picture shows, or write {"skip":true} for the beat. Cite 1-3 sentence ids per beat; you copy nothing, the program copies the sentences.\n\n'
     + 'THE REST OF THE SCRIPT (read only, do not change):\n' + rest + '\n\n' + blocks + '\n\n'
     + 'Return JSON only, with exactly the beats above: {"beats":{"' + [...named].sort((a, b) => a - b)[0] + '":{"narration":"","evidence_ids":["' + [...named].sort((a, b) => a - b)[0] + '.1"]}}}';
 }
@@ -304,6 +309,8 @@ async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3
   if (!fitOptions.judge) throw Object.assign(new Error('no vision model is available to check that the pictures fit the narration'), { code: 'VISION_UNAVAILABLE' });
   const shows = await describePictures({ story, ...fitOptions });
   let previous = null;
+  const namedStreak = new Map();
+  let forcedSkip = false;
   // Free providers first (Gemini only when all of them failed). A reply that is cut off by the token budget is as unusable as a malformed one, and the
   // retry goes to another model than the one that produced it.
   const lastModelOf = {};
@@ -318,7 +325,25 @@ async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3
     maxRevisions, logger,
     write: async brief => {
       // Notes that name beats: only those beats are rewritten (their own small request, the exact notes, another model than the one that wrote them).
-      const wanted = previous && affectedBeats(brief);
+      let wanted = previous && affectedBeats(brief);
+      // A beat named by the review three times in a row has been rewritten twice and still fails: it is skipped (its picture falls) instead of burning the last attempts, as long as
+      // at least 4 beats stay narrated and only one beat is ever dropped this way. The merged script goes through the SAME review again (facts, pictures, prose, totals) without it.
+      if (previous) {
+        for (const n of [...namedStreak.keys()]) if (!wanted || !wanted.has(n)) namedStreak.delete(n);
+        if (wanted) for (const n of wanted) namedStreak.set(n, (namedStreak.get(n) || 0) + 1);
+        const doomed = wanted ? [...wanted].filter(n => namedStreak.get(n) >= SKIP_AFTER_NAMINGS && previous.beats[n - 1] && !previous.beats[n - 1].skip) : [];
+        const narrated = previous.beats.filter(b => !b.skip).length;
+        if (doomed.length === 1 && !forcedSkip && narrated - 1 >= 4) {
+          const n = doomed[0];
+          forcedSkip = true;
+          logger?.warn?.(`grounded writer: beat ${n} still fails after two rewrites; skipping it and reviewing the script again without it`);
+          const beats = previous.beats.map((beat, i) => (i === n - 1 ? { ...beat, skip: true, narration: '', evidence: [], evidenceIds: [] } : beat));
+          previous = withSummary({ ...previous, beats });
+          namedStreak.delete(n);
+          wanted = new Set([...wanted].filter(m => m !== n));
+          if (!wanted.size) return previous;
+        }
+      }
       if (wanted && wanted.size && [...wanted].every(n => previous.beats[n - 1] && !previous.beats[n - 1].skip)) {
         for (let tries = 1; tries <= 2; tries += 1) {
           try {
@@ -339,7 +364,7 @@ async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3
         try {
           draft = parseDraft(await ask(buildPrompt(story, brief, previous, shows), { maxTokens: 1600, temperature: brief ? 0.4 : 0.6 }), story);
         } catch (error) {
-          if (tries >= 2 || !(error.cutOff || /no title.beats|JSON|Unexpected (token|end)|Unterminated|parse/i.test(error.message))) throw error;
+          if (tries >= MAX_FULL_TRIES || !(error.cutOff || /no title.beats|JSON|Unexpected (token|end)|Unterminated|parse/i.test(error.message))) throw error;
           logger?.warn?.(`grounded writer: unusable reply (${error.message}); asking again`);
         }
       }

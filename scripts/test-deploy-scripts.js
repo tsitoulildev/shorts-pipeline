@@ -43,6 +43,11 @@ assert.ok(rollout.includes('ROLLOUT_ACTIVATE') && rollout.includes('activate-aut
 // Cadence change is operator-requested, validated twice, and only writes cadence_per_week.
 assert.ok(rollout.includes('ROLLOUT_CADENCE') && rollout.includes('scripts/set-cadence.js'), 'rollout supports the cadence input');
 assert.ok(/\^\[0-9\]\{1,2\}\$/.test(rollout), 'rollout validates the cadence value');
+// The restart never falls between :38 and :50 UTC (the hourly production check starts at :40): the guard is a function that is run here with real minutes.
+assert.ok(rollout.indexOf('production_window_wait_seconds "$(date') < rollout.indexOf('sudo systemctl restart youtube-agent.service'), 'the window wait comes before the restart');
+const fn = rollout.slice(rollout.indexOf('production_window_wait_seconds() {'), rollout.indexOf('}', rollout.indexOf('production_window_wait_seconds() {')) + 1);
+const wait = (m, s) => Number(spawnSync('bash', ['-c', `${fn}\nproduction_window_wait_seconds ${m} ${s}`], { encoding: 'utf8' }).stdout.trim());
+assert.deepEqual([wait('37', '59'), wait('38', '00'), wait('39', '10'), wait('40', '00'), wait('49', '59'), wait('50', '00'), wait('05', '07'), wait('08', '09')], [0, 720, 650, 600, 1, 0, 0, 0], 'wait until :50 inside :38-:50, none outside (08 and 09 must not be read as octal)');
 const workflow = read('.github/workflows/deploy-oracle.yml');
 assert.ok(workflow.includes('cadence_per_week') && workflow.includes('CADENCE: ${{ inputs.cadence_per_week }}'), 'workflow passes the cadence through an env var');
 assert.ok(!/ROLLOUT_CADENCE=\$\{\{/.test(workflow), 'the input is never interpolated directly into the remote command');

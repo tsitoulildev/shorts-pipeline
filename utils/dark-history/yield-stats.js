@@ -44,7 +44,23 @@ class YieldStats {
     if (this.ready) return;
     await this.db.executeQuery('CREATE TABLE IF NOT EXISTS dh_llm_stats (day TEXT, role TEXT, model TEXT, ok INTEGER DEFAULT 0, failed INTEGER DEFAULT 0, timeout INTEGER DEFAULT 0, empty INTEGER DEFAULT 0, rate_limited INTEGER DEFAULT 0, PRIMARY KEY (day, role, model))');
     await this.db.executeQuery('CREATE TABLE IF NOT EXISTS dh_rejections (day TEXT, cause TEXT, n INTEGER DEFAULT 0, PRIMARY KEY (day, cause))');
+    await this.db.executeQuery('CREATE TABLE IF NOT EXISTS dh_hourly (hour TEXT PRIMARY KEY, attempts INTEGER, successes INTEGER, r429 INTEGER, calls TEXT, queue INTEGER, cap INTEGER, throttled INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP)');
     this.ready = true;
+  }
+
+  /** Today's LLM calls and rate limits (all roles), and the calls per provider: the baseline of a slot's 429 limiter and of the hourly row. */
+  async totals() {
+    await this.ensure();
+    const rows = await this.db.getAllRows('SELECT model, SUM(ok + failed) AS calls, SUM(rate_limited) AS r429 FROM dh_llm_stats WHERE day = ? GROUP BY model', [today()]);
+    const byProvider = {};
+    for (const row of rows) { const provider = String(row.model).split(':')[0]; byProvider[provider] = (byProvider[provider] || 0) + Number(row.calls || 0); }
+    return { calls: rows.reduce((n, r) => n + Number(r.calls || 0), 0), r429: rows.reduce((n, r) => n + Number(r.r429 || 0), 0), byProvider };
+  }
+
+  /** One row per hourly check: attempts, successes, rate limits and calls per provider since the check began, the queue length, the attempt cap used. */
+  async hourly(row) {
+    await this.ensure();
+    await this.db.executeQuery('INSERT OR REPLACE INTO dh_hourly (hour, attempts, successes, r429, calls, queue, cap, throttled) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [row.hour, row.attempts, row.successes, row.r429, JSON.stringify(row.calls || {}), row.queue, row.cap, row.throttled ? 1 : 0]);
   }
 
   /** event: { role, provider, model, outcome: 'ok' | 'timeout' | 'empty' | 'rate_limited' | 'failed' } */
@@ -73,7 +89,8 @@ class YieldStats {
     const jobs = await this.db.getAllRows("SELECT substr(created_at,1,10) AS day, source, SUM(status = 'completed') AS completed, SUM(status = 'failed') AS failed, COUNT(*) AS jobs FROM generation_jobs WHERE style = 'documentary' AND substr(created_at,1,10) >= ? GROUP BY day, source ORDER BY day, source", [since]);
     const models = await this.db.getAllRows('SELECT day, role, model, ok, failed, timeout, empty, rate_limited FROM dh_llm_stats WHERE day >= ? ORDER BY day, role, ok DESC', [since]);
     const causes = await this.db.getAllRows('SELECT day, cause, n FROM dh_rejections WHERE day >= ? ORDER BY day, n DESC', [since]);
-    return { since, jobs, models, causes };
+    const hourly = await this.db.getAllRows('SELECT hour, attempts, successes, r429, calls, queue, cap, throttled FROM dh_hourly WHERE hour >= ? ORDER BY hour', [new Date(Date.now() - days * 86400000).toISOString().slice(0, 13)]);
+    return { since, jobs, models, causes, hourly };
   }
 }
 

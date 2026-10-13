@@ -148,6 +148,7 @@ class YouTubeAutomationAgent {
       this.logger.info('Setting up automation scheduler...');
       this.scheduler = new DailyAutomation(this.agents, this.db, {
         generateContent: input => this.queueScheduledContent(input),
+        waitForJob: jobId => this.waitForGenerationJob(jobId),
         engagement: this.engagement,
         experiments: this.experiments,
         readiness: this.readiness,
@@ -581,7 +582,8 @@ class YouTubeAutomationAgent {
             initialized: this.isInitialized,
             setupRequired: this.setupRequired,
             uptime: process.uptime(),
-            activeJobs: this.activeJobs.size,
+            // a Dark History slot between two attempts has no job for a moment: it still counts, so a deploy never restarts inside it
+            activeJobs: this.activeJobs.size + (this.scheduler?.slotRunning ? 1 : 0),
             automationPaused: this.scheduler ? !this.scheduler.isEnabled : true,
             // Effective controls (environment wins over stored settings), for operators and verifiers.
             control: await resolveControlState(this.db),
