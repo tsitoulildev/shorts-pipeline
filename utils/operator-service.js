@@ -1,14 +1,10 @@
 const fs = require('fs').promises;
 const axios = require('axios');
 const { Logger } = require('./logger');
-const { getMediaDuration, getAudioLevels, probeMediaStreams, detectBlackSegments } = require('./ffmpeg');
-const { ambientEnabled, ambientRequired, measureLoudness, evaluateMix } = require('./audio-mix');
-const { evaluateStoredReview } = require('./creative-review');
-const { grayThumbnail, evaluateVisualDistance, evaluateCharacterConsistency, evaluateSceneVariety } = require('./visual-variety');
+const { getMediaDuration, probeMediaStreams } = require('./ffmpeg');
 const { sendTelegram } = require('./telegram-notifier');
 const { maxBeatSeconds } = require('./beat-balance');
 const { checkDocumentaryProduction } = require('./dark-history/documentary-gate');
-const { detectSpeechWindow, parseSrt, analyzeOpeningFrames, evaluateHook, evaluateCaptionSync } = require('./speech-timing');
 
 class OperatorService {
   constructor(db) {
@@ -24,7 +20,6 @@ class OperatorService {
     const finalVideo = production.assets?.finalVideo;
     const thumbnail = production.assets?.thumbnail;
     const bannedTopics = Array.isArray(profile.bannedTopics) ? profile.bannedTopics : [];
-    const evidenceRequired = await this.evidenceGatesApply(production);
     const combinedText = `${title}\n${description}\n${script}`.toLowerCase();
     const spokenWordCount = Number(production.script?.metadata?.spokenWordCount) ||
       [
@@ -37,7 +32,7 @@ class OperatorService {
     const lengthKey = String(
       production.strategy?.requestedLengthKey ||
       production.strategy?.length ||
-      (production.strategy?.fictional === true ? 'short' : '')
+      ''
     ).toLowerCase();
     const wordWindows = {
       short: [90, 140],
@@ -84,11 +79,6 @@ class OperatorService {
           ? 'Only a simulated video was produced'
           : finalVideo?.path ? 'Final MP4 is ready' : 'Final MP4 is missing')
     ];
-
-    if (production.strategy?.fictional === true && evidenceRequired) {
-      const review = evaluateStoredReview(production.script);
-      checks.push(this.check('creative_review', review.passed, review.message));
-    }
 
     const topic = String(production.strategy?.topic || '').trim();
     if (topic) {
@@ -171,35 +161,6 @@ class OperatorService {
         checks.push(this.check('av_sync', false, 'Audio/video duration could not be verified'));
       }
 
-      if (production.strategy?.fictional === true && videoExists) {
-        let streams = null;
-        try { streams = await probeMediaStreams(finalVideo.path); } catch (_error) { streams = null; }
-        const formatOk = Boolean(streams) && streams.hasVideo && streams.hasAudio &&
-          streams.width === 1080 && streams.height === 1920 &&
-          Number.isFinite(streams.fps) && streams.fps >= 24 && streams.fps <= 60;
-        checks.push(this.check(
-          'video_format',
-          formatOk,
-          !streams
-            ? 'Final MP4 streams could not be inspected'
-            : formatOk
-              ? `Final MP4 is ${streams.width}x${streams.height} at ${streams.fps} fps with audio (${streams.videoCodec})`
-              : `Final MP4 must be 1080x1920, 24-60 fps, with video and audio; got ${streams.width}x${streams.height} at ${streams.fps} fps, audio=${streams.hasAudio}`
-        ));
-
-        let blackSegments = null;
-        try { blackSegments = await detectBlackSegments(finalVideo.path); } catch (_error) { blackSegments = null; }
-        checks.push(this.check(
-          'no_black_segments',
-          Array.isArray(blackSegments) && blackSegments.length === 0,
-          !Array.isArray(blackSegments)
-            ? 'Black-frame analysis could not run'
-            : blackSegments.length === 0
-              ? 'No black or missing-video stretches detected'
-              : `Black video at ${blackSegments.map(item => `${item.start.toFixed(1)}-${item.end.toFixed(1)}s`).join(', ')}`
-        ));
-      }
-
       const durationWindows = {
         short: [20, 45],
         medium: [390, 780],
@@ -220,17 +181,10 @@ class OperatorService {
 
     const captionsPath = production.assets?.captions?.path;
     const captionsPresent = Boolean(captionsPath && await this.fileExists(captionsPath));
-    const captionsBurned = production.strategy?.fictional === true
-      ? production.assets?.finalVideo?.captionsBurnedIn === true
-      : true;
     checks.push(this.check(
       'captions',
-      captionsPresent && captionsBurned,
-      !captionsPresent
-        ? 'Caption file is missing'
-        : captionsBurned
-          ? 'Caption file is present and Horror Short captions are burned into the video'
-          : 'Horror Short captions were not burned into the final MP4'
+      captionsPresent,
+      captionsPresent ? 'Caption file is present' : 'Caption file is missing'
     ));
 
     const audio = production.assets?.audio || {};
@@ -262,61 +216,6 @@ class OperatorService {
     // A file that merely exists is not narration. Horror Shorts are voice-led, so
     // prove the voice track is audible and that its length fits the script: silent,
     // clipped, or runaway TTS output must never reach the publish queue.
-    if (production.strategy?.fictional === true && productionAudioReady && !intentionalSilence) {
-      let levels = null;
-      try { levels = await getAudioLevels(audio.path); } catch (_error) { levels = null; }
-      const audible = Boolean(levels) && levels.meanVolume >= -50 && levels.maxVolume >= -35;
-      checks.push(this.check(
-        'narration_audible',
-        audible,
-        !levels
-          ? 'Narration loudness could not be measured'
-          : audible
-            ? `Narration is audible (mean ${levels.meanVolume.toFixed(1)} dB, peak ${levels.maxVolume.toFixed(1)} dB)`
-            : `Narration is silent or too quiet (mean ${levels.meanVolume} dB, peak ${levels.maxVolume} dB)`
-      ));
-
-      let narrationSeconds = null;
-      try { narrationSeconds = await getMediaDuration(audio.path); } catch (_error) { narrationSeconds = null; }
-      const wordsPerSecond = narrationSeconds > 0 ? spokenWordCount / narrationSeconds : null;
-      const paced = Number.isFinite(wordsPerSecond) && wordsPerSecond >= 1.6 && wordsPerSecond <= 4.5;
-      checks.push(this.check(
-        'narration_pacing',
-        paced,
-        !Number.isFinite(wordsPerSecond)
-          ? 'Narration duration could not be measured against the script'
-          : paced
-            ? `Narration delivers ${wordsPerSecond.toFixed(2)} words/s for ${spokenWordCount} scripted words`
-            : `Narration pacing ${wordsPerSecond.toFixed(2)} words/s does not fit ${spokenWordCount} scripted words in ${narrationSeconds.toFixed(1)}s (expected 1.6-4.5); TTS output is likely truncated or padded`
-      ));
-
-      // Sound design: ambient bed under the voice, stingers, loudness and true peak. The
-      // loudness is re-measured on the FINAL video so stale evidence cannot pass.
-      if (ambientEnabled() && evidenceRequired) {
-        let finalLoudness = null;
-        if (finalVideo?.path && !finalVideo.simulated && await this.fileExists(finalVideo.path)) {
-          try { finalLoudness = await measureLoudness(finalVideo.path); } catch (_error) { finalLoudness = null; }
-        }
-        const verdict = evaluateMix(audio.mix, finalLoudness);
-        checks.push(this.check('audio_mix', verdict.passed, verdict.message, ambientRequired()));
-      }
-
-      // Retention gates measured from the real files: captions must follow the voice, and
-      // the first 1.5 s must have an early voice, an early caption and a visible, moving picture.
-      if (finalVideo?.path && !finalVideo.simulated && captionsPresent && await this.fileExists(finalVideo.path)) {
-        let speech = null;
-        let cues = null;
-        let frames = null;
-        try { speech = await detectSpeechWindow(audio.path); } catch (_error) { speech = null; }
-        try { cues = parseSrt(await fs.readFile(captionsPath, 'utf8')); } catch (_error) { cues = null; }
-        try { frames = await analyzeOpeningFrames(finalVideo.path); } catch (_error) { frames = null; }
-        const sync = evaluateCaptionSync({ speech, cues });
-        checks.push(this.check('caption_sync', sync.passed, sync.message));
-        const hook = evaluateHook({ speech, cues, frames });
-        checks.push(this.check('hook_opening', hook.passed, hook.message));
-      }
-    }
-
     const visualPlan = production.assets?.video?.scenePlan || [];
     if (visualPlan.length) {
       const maxBeat = maxBeatSeconds();
@@ -329,72 +228,11 @@ class OperatorService {
           : `${oversized.length} visual beat${oversized.length === 1 ? '' : 's'} exceed the ${maxBeat}s pacing target`
       ));
 
-      if (production.strategy?.fictional === true) {
-        const beatCountOk = visualPlan.length >= 4 && visualPlan.length <= 7;
-        checks.push(this.check(
-          'horror_beat_count',
-          beatCountOk,
-          beatCountOk ? `${visualPlan.length} Dark Stickman beats fit the 4-7 contract` : `Horror Short requires 4-7 beats; got ${visualPlan.length}`
-        ));
-        const visualStyle = String(production.assets?.video?.visualStyle || '').toLowerCase();
-        checks.push(this.check(
-          'horror_brand_style',
-          visualStyle.includes('dark stickman'),
-          visualStyle.includes('dark stickman') ? 'Dark Stickman visual style is locked' : 'Visual style drifted away from Dark Stickman'
-        ));
-        const generatedScenes = visualPlan.filter(scene =>
-          scene.assetPath &&
-          scene.simulated !== true &&
-          scene.assetOrigin === 'generated' &&
-          scene.rightsConfirmed === true
-        );
-        checks.push(this.check(
-          'horror_scene_coverage',
-          generatedScenes.length === visualPlan.length,
-          generatedScenes.length === visualPlan.length
-            ? 'Every horror beat has an original generated scene'
-            : `${visualPlan.length - generatedScenes.length} horror beat(s) lack original generated media`
-        ));
-        // Compare image content, not file names: two beats rendered as the same
-        // picture are a reused visual even when they were saved under new paths.
-        const fingerprints = [];
-        for (const scene of generatedScenes) {
-          fingerprints.push(await this.fileFingerprint(scene.assetPath) || `path:${scene.assetPath}`);
-        }
-        const uniqueVisuals = new Set(fingerprints).size;
-        checks.push(this.check(
-          'horror_visual_diversity',
-          uniqueVisuals === generatedScenes.length,
-          uniqueVisuals === generatedScenes.length
-            ? 'Each horror beat uses a visually distinct generated image'
-            : `${generatedScenes.length - uniqueVisuals} horror beat(s) reuse an identical image`
-        ));
-
-        // Same figure, different beats: one reference character across the Short, varied
-        // poses and places, and images whose decoded pixels really differ.
-        const visuals = generatedScenes.map(scene => scene.visual || null);
-        const localRenderer = !/^(0|false|no)$/i.test(String(process.env.LOCAL_STICKMAN_RENDERER || 'true'));
-        if (evidenceRequired) {
-          const consistency = evaluateCharacterConsistency(visuals, { required: localRenderer });
-          checks.push(this.check('horror_character_consistency', consistency.passed, consistency.message));
-          const variety = localRenderer
-            ? evaluateSceneVariety(visuals)
-            : { passed: true, message: 'Pose/environment evidence is only recorded by the built-in renderer' };
-          checks.push(this.check('horror_scene_variety', variety.passed, variety.message));
-        }
-        let thumbnails = [];
-        try {
-          for (const scene of generatedScenes) thumbnails.push(await grayThumbnail(scene.assetPath));
-        } catch (_error) { thumbnails = []; }
-        const distance = evaluateVisualDistance(thumbnails);
-        checks.push(this.check('horror_visual_distance', distance.passed, distance.message));
-      }
-
       const provenance = Array.isArray(production.assets?.video?.provenance)
         ? production.assets.video.provenance
         : [];
       const freeMediaOnly = !/^(0|false|no)$/i.test(String(process.env.FREE_MEDIA_ONLY || 'true'));
-      if (freeMediaOnly && production.strategy?.fictional !== true) {
+      if (freeMediaOnly) {
         const sourceByScene = new Map(provenance.map(item => [Number(item.sceneIndex), item]));
         const missingSourceEvidence = visualPlan.filter(scene => {
           const source = sourceByScene.get(Number(scene.index));
@@ -548,21 +386,6 @@ class OperatorService {
     } catch (_error) {
       return null;
     }
-  }
-
-  /**
-   * Evidence gates (audio mix, character, variety, creative review) apply to every
-   * production created after the upgrade marker. Without a marker they are strict.
-   */
-  async evidenceGatesApply(production) {
-    let since = null;
-    try { since = await this.db.getSetting('qa_evidence_gates_since'); } catch (_error) { since = null; }
-    if (!since) return true;
-    const raw = String(production.created_at || production.createdAt || '').trim();
-    if (!raw) return true;
-    const created = new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : `${raw.replace(' ', 'T')}Z`);
-    if (Number.isNaN(created.getTime())) return true;
-    return created >= new Date(since);
   }
 
   check(id, passed, message, blocking = true) {

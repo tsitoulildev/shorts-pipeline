@@ -43,8 +43,6 @@ echo "Code: ${before:0:12} -> ${after:0:12}"
 npm install --include=dev --no-fund --no-audit
 npm run lint
 npm test
-# Offline end-to-end Short (temp DB, no network, no upload).
-npm run dry-run:horror
 
 unit_changed=false
 if ! cmp -s deploy/oracle-vm/youtube-agent.service /etc/systemd/system/youtube-agent.service; then

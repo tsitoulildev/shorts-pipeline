@@ -2,13 +2,11 @@ const fs = require('fs').promises;
 const os = require('os');
 const path = require('path');
 const { AITextService } = require('./ai-text-service');
-const { AIVideoGenerator } = require('./ai-video-generator');
+const { LocalTts } = require('./local-tts');
 const { checkFFmpeg, runFFmpeg } = require('./ffmpeg');
 const { validateYouTubeMetadata } = require('./youtube-metadata-validator');
 const { Logger } = require('./logger');
-const { MediaGenerationService } = require('./media-generation-service');
 const { assertExpectedChannel } = require('./youtube-channel-guard');
-const { isLive } = require('./dark-history/live');
 const { makeNarrator } = require('./dark-history/narration');
 const { renderStill, renderThumbnail, subtitleFilter } = require('./dark-history/documentary-render');
 const { defaultHttp } = require('./dark-history/http');
@@ -79,22 +77,17 @@ class ProductionReadinessService {
     return this.activeRun;
   }
 
-  async executeRun(options) {
+  async executeRun(_options) {
     const startedAt = this.now().toISOString();
     const id = this.db.generateId ? this.db.generateId('readiness') : `readiness_${Date.now()}`;
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'yaa-readiness-'));
     const checks = [];
 
     try {
-      const freeMediaOnly = !/^(0|false|no)$/i.test(String(process.env.FREE_MEDIA_ONLY || 'true'));
       checks.push(await this.executeCheck('text_provider', 'AI text provider', true, () => this.probeText()));
-      // Dark History live: the media and voice checks prove what the documentary path really uses (no image generator, no cloud voice).
-      const documentary = isLive();
-      checks.push(documentary
-        ? await this.executeCheck('image_provider', 'Documentary render (Wikimedia, real-image video, captions, thumbnail)', true, () => this.probeDocumentary(tempDir))
-        : await this.executeCheck('image_provider', 'Dark Stickman image provider', true, () => this.probeImage(tempDir, Boolean(options.includePaidMedia))));
-      checks.push(await this.executeCheck('video_provider', 'AI video provider', !freeMediaOnly, () => this.probeVideoProvider(tempDir, Boolean(options.includePaidVideo))));
-      checks.push(await this.executeCheck('voice_narration', documentary ? 'Voice narration (public-domain local voice)' : 'Voice narration', true, () => (documentary ? this.probeDocumentaryNarration(tempDir) : this.probeNarration(tempDir))));
+      // The media and voice checks prove what the documentary path really uses (Wikimedia pictures, FFmpeg, a local public-domain voice).
+      checks.push(await this.executeCheck('image_provider', 'Documentary render (Wikimedia, real-image video, captions, thumbnail)', true, () => this.probeDocumentary(tempDir)));
+      checks.push(await this.executeCheck('voice_narration', 'Voice narration (public-domain local voice)', true, () => this.probeDocumentaryNarration(tempDir)));
       checks.push(await this.executeCheck('video_assembly', 'Audio/video assembly', true, () => this.probeVideoAssembly(tempDir)));
       checks.push(await this.executeCheck('youtube_access', 'YouTube channel access', true, () => this.probeYouTube()));
       checks.push(await this.executeCheck('upload_metadata', 'Upload metadata', true, () => this.probeMetadata()));
@@ -178,31 +171,6 @@ class ProductionReadinessService {
     return { message: `${service.providerName} returned a live response.`, details: { provider: service.providerName, responseReceived: Boolean(response) } };
   }
 
-  async probeImage(tempDir, includePaidMedia) {
-    if (this.probes.image) return this.probes.image({ tempDir, includePaidMedia });
-    const generator = new AIVideoGenerator(this.credentialManager.credentials || {});
-    if (!generator.isLocalStickmanRendererEnabled() && !generator.openai && !generator.gemini) {
-      throw new Error('No Dark Stickman image renderer is available');
-    }
-    const outputPath = path.join(tempDir, 'readiness-stickman.png');
-    await generator.generateImage(
-      'minimal dark stickman horror illustration, one black stick figure in a near-black hallway, high-contrast silhouette, vertical 9:16, no text, no gore',
-      outputPath
-    );
-    const stats = await fs.stat(outputPath);
-    if (stats.size < 100) throw new Error('Dark Stickman image renderer returned an empty or invalid asset');
-    return {
-      message: 'A production Dark Stickman renderer created a real vertical test asset.',
-      details: {
-        bytes: stats.size,
-        provider: generator.lastImageResult?.provider || (generator.gemini ? 'gemini' : generator.openai ? 'openai' : 'unknown'),
-        model: generator.lastImageResult?.model || null,
-        freeOnly: !includePaidMedia
-      }
-    };
-  }
-
-  /** Wikimedia answers, and FFmpeg really does a Ken Burns clip, burned captions and a drawtext thumbnail (the pieces a Short needs). */
   async probeDocumentary(tempDir) {
     if (this.probes.documentary) return this.probes.documentary({ tempDir });
     await defaultHttp.getJson('https://en.wikipedia.org/w/api.php', { action: 'query', meta: 'siteinfo', format: 'json' });
@@ -218,68 +186,12 @@ class ProductionReadinessService {
 
   async probeDocumentaryNarration(tempDir) {
     if (this.probes.narration) return this.probes.narration({ tempDir });
-    const narrate = makeNarrator({ generator: new AIVideoGenerator(this.credentialManager.credentials || {}) });
+    const narrate = makeNarrator({ generator: new LocalTts() });
     const outputPath = path.join(tempDir, 'readiness-narration.mp3');
     await narrate('Production readiness audio check.', outputPath);
     const stats = await fs.stat(outputPath);
     if (stats.size < 100) throw new Error('The local public-domain voice returned an empty audio file');
     return { message: 'The local public-domain voice produced a narration sample.', details: { bytes: stats.size } };
-  }
-
-  async probeNarration(tempDir) {
-    if (this.probes.narration) return this.probes.narration({ tempDir });
-    const generator = new AIVideoGenerator(this.credentialManager.credentials || {});
-    const outputPath = path.join(tempDir, 'readiness-narration.mp3');
-    const resultPath = await generator.generateTTSAudio('Production readiness audio check.', outputPath);
-    if (path.extname(resultPath).toLowerCase() === '.info') throw new Error('No live narration provider is available; the pipeline returned a simulation');
-    const stats = await fs.stat(resultPath);
-    if (stats.size < 100) throw new Error('Narration provider returned an empty audio file');
-    return { message: 'A live narration sample was generated.', details: { bytes: stats.size } };
-  }
-
-  async probeVideoProvider(tempDir, includePaidVideo) {
-    if (this.probes.videoProvider) return this.probes.videoProvider({ tempDir, includePaidVideo });
-    const service = new MediaGenerationService(this.db, this.credentialManager.credentials || {});
-    const settings = await service.settings();
-    const requested = settings.provider;
-    const configured = requested === 'auto' ? service.registry.select('auto', settings.order) : service.registry.get(requested);
-    if (!configured || !configured.isAvailable()) {
-      if (requested === 'slideshow') {
-        return { message: 'Local slideshow video generation is selected; no paid AI video provider is required.', details: { provider: 'slideshow' } };
-      }
-      throw new Error(`${requested} is selected but its credentials are not configured`);
-    }
-    if (configured.id === 'slideshow') {
-      return { message: 'Local slideshow video generation is selected; no paid AI video provider is required.', details: { provider: 'slideshow' } };
-    }
-    if (!includePaidVideo) {
-      return {
-        status: 'skipped',
-        message: `${configured.id} is configured; the paid live video probe was not requested.`,
-        remediation: 'Enable “Include paid video probe” on the next readiness run to verify the selected model.',
-        details: { provider: configured.id, model: configured.model }
-      };
-    }
-    const outputPath = path.join(tempDir, 'readiness-provider.mp4');
-    const result = await service.generateClip({
-      jobId: null,
-      productionId: `readiness_${Date.now()}`,
-      scene: { index: Date.now() },
-      provider: configured,
-      outputPath,
-      request: {
-        prompt: 'A small red ball rolls slowly across a plain dark studio floor, static camera, no text.',
-        duration: configured.capabilities.minDuration || 4,
-        resolution: settings.resolution,
-        aspectRatio: settings.aspectRatio,
-        generateAudio: false
-      }
-    });
-    const stats = await fs.stat(result.outputPath);
-    return {
-      message: `${configured.id} created and returned a decodable MP4.`,
-      details: { provider: configured.id, model: configured.model, bytes: stats.size, taskId: result.task.external_task_id }
-    };
   }
 
   async probeVideoAssembly(tempDir) {
@@ -349,9 +261,8 @@ class ProductionReadinessService {
   remediationFor(id) {
     const messages = {
       text_provider: 'Run npm run walkthrough, verify the selected model, and confirm provider credits or quota.',
-      image_provider: 'Enable the built-in local Dark Stickman renderer or configure an approved image provider, then rerun.',
-      video_provider: 'Configure the selected provider credentials, choose local slideshow, or rerun with the paid video probe enabled.',
-      voice_narration: 'Configure OpenAI, Gemini TTS, or ElevenLabs with a voice ID, then rerun.',
+      image_provider: 'Check that Wikimedia answers and that FFmpeg (the system build with drawtext) can render a clip, captions and a thumbnail, then rerun.',
+      voice_narration: 'Check LOCAL_TTS_COMMAND (the Piper command and its public-domain voice), then rerun.',
       video_assembly: 'Run npm install to restore ffmpeg-static, or configure FFMPEG_PATH to a working binary.',
       youtube_access: 'Reconnect YouTube in npm run walkthrough and ensure the Google account owns a channel.',
       upload_metadata: 'Edit the queued title, description, category, language, and tags before publishing.'

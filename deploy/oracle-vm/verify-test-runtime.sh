@@ -37,7 +37,7 @@ const fs = require('node:fs');
 const health = JSON.parse(fs.readFileSync(process.env.HEALTH_FILE, 'utf8') || '{}');
 const dashboard = JSON.parse(fs.readFileSync(process.env.DASHBOARD_FILE, 'utf8') || '{}');
 if (health.status !== 'healthy' || health.initialized !== true || health.setupRequired === true) throw new Error('health is not ready');
-const expectedAgents = ['strategy', 'scriptWriter', 'thumbnailDesigner', 'seoOptimizer', 'production', 'publishing', 'analytics'];
+const expectedAgents = ['publishing', 'analytics'];
 const agents = new Set(Array.isArray(health.agents) ? health.agents : []);
 const missing = expectedAgents.filter(name => !agents.has(name));
 if (missing.length) throw new Error('missing agents: ' + missing.join(', '));

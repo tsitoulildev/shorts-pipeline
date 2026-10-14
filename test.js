@@ -27,28 +27,19 @@ class SystemTest {
       { name: 'Production Persistence', test: () => this.testProductionPersistence() },
       { name: 'Automation Events Table', test: () => this.testAutomationEventsTable() },
       { name: 'Operator Workflow API', test: () => this.testOperatorWorkflowAPI() },
-      { name: 'Autonomous Channel Operator', test: () => this.testAutonomousChannelOperator() },
-      { name: 'Autonomous Planner JSON Reliability', test: () => this.testAutonomousPlannerJsonReliability() },
       { name: 'Closed-loop Channel Learning', test: () => this.testChannelLearningLoop() },
-      { name: 'Horror Shorts Learning Loop', test: () => this.testHorrorLearningLoop() },
       { name: 'Controlled Growth Experiments Studio', test: () => this.testGrowthExperimentsStudio() },
       { name: 'Outcome and ROI Studio', test: () => this.testOutcomeROIStudio() },
       { name: 'Scene-Aware Retention Studio', test: () => this.testSceneAwareRetentionStudio() },
       { name: 'Production Readiness Gate', test: () => this.testProductionReadinessGate() },
-      { name: 'Durable Multi-Provider Video Generation', test: () => this.testVideoProviderLayer() },
-      { name: 'Scene Repair Studio', test: () => this.testSceneRepairStudio() },
-      { name: 'Narration Reliability and Recovery', test: () => this.testNarrationReliability() },
       { name: 'Free Local Voice Fallback', test: () => this.testFreeLocalVoiceFallback() },
-      { name: 'Documentary Orchestration Contract', test: () => this.testDocumentaryOrchestrationContract() },
       { name: 'Safe Provider Readiness Defaults', test: () => this.testSafeProviderReadinessDefaults() },
       { name: 'Live Provider Smoke CLI', test: () => this.testLiveProviderSmokeCLI() },
-      { name: 'Current Gemini Provider Defaults', test: () => this.testCurrentGeminiProviderDefaults() },
       { name: 'Gemini Readiness Thinking Budget', test: () => this.testGeminiReadinessThinkingBudget() },
       { name: 'Gemini Free Model Failover', test: () => this.testGeminiFreeModelFailover() },
       { name: 'Research and Provenance Desk', test: () => this.testProvenanceDesk() },
       { name: 'DarkzSEO Discoverability Preflight', test: () => this.testDiscoverabilityPreflight() },
       { name: 'Open Issue Regressions', test: () => this.testOpenIssueRegressions() },
-      { name: 'Resumable Generation Checkpoints', test: () => this.testResumableGenerationCheckpoints() },
       { name: 'API Validation and Security', test: () => this.testAPIValidationAndSecurity() },
       { name: 'Publishing Safety', test: () => this.testPublishingSafety() },
       { name: 'Upload Authorization Policy', test: () => this.testUploadAuthorizationPolicy() },
@@ -59,17 +50,8 @@ class SystemTest {
       { name: 'Free LLM Cooldown Tracking', test: () => this.testLLMCooldownTracker() },
       { name: 'Free LLM Sensitive Task Routing', test: () => this.testFreeLLMSensitiveRouting() },
       { name: 'Free-Only Text Provider Selection', test: () => this.testFreeOnlyPrimarySelection() },
-      { name: 'Evidence-Aware Visual Handoff', test: () => this.testEvidenceAwareVisualHandoff() },
-      { name: 'Agent Communication Contracts', test: () => this.testAgentCommunicationContracts() },
       { name: 'Placeholder Scheduling Guard', test: () => this.testPlaceholderSchedulingGuard() },
       { name: 'FFmpeg Resolution', test: () => this.testFFmpegResolution() },
-      { name: 'Final Video Technical Gates', test: () => this.testFinalVideoTechnicalGates() },
-      { name: 'Gemini Media Provider Selection', test: () => this.testGeminiMediaProvider() },
-      { name: 'Slideshow Renderer', test: () => this.testSlideshowRenderer() },
-      { name: 'Evergreen Template Topics', test: () => this.testEvergreenTopics() },
-      { name: 'Thumbnail Creative Direction', test: () => this.testThumbnailCreativeDirection() },
-      { name: 'Documentary Packaging Strategy', test: () => this.testDocumentaryPackagingStrategy() },
-      { name: 'Documentary Production Direction', test: () => this.testDocumentaryProductionDirection() },
       { name: 'Evidence-Based Publishing Strategy', test: () => this.testEvidenceBasedPublishingStrategy() },
       { name: 'Contextual Analytics Interpretation', test: () => this.testContextualAnalyticsInterpretation() },
       { name: 'Walkthrough Module', test: () => this.testWalkthroughModule() },
@@ -275,7 +257,7 @@ class SystemTest {
         body: '{}'
       });
       if (unavailableStart.status !== 503) {
-        throw new Error('Autonomous operator did not fail closed when its strategy agent was unavailable');
+        throw new Error('Activating production did not fail closed when the publishing agent was unavailable');
       }
 
       learningRecommendation = await db.saveLearningRecommendation({
@@ -308,276 +290,10 @@ class SystemTest {
       else process.env.API_KEY = previousApiKey;
     }
   }
-  async testAutonomousChannelOperator() {
-    const { ContentStrategyAgent } = require('./agents/content-strategy-agent');
-    const { AutonomousChannelOperator } = require('./utils/autonomous-channel-operator');
-    const db = new Database();
-    await db.initialize();
-    const previousStrategy = await db.getChannelStrategy();
-    let run;
-    let recoverableJob;
-
-    try {
-      const strategy = await db.saveChannelStrategy({
-        objective: 'Grow an original Horror Stickman Shorts channel',
-        audience: 'Global English horror Shorts viewers',
-        valueProposition: 'Original psychological micro-horror in a consistent Dark Stickman visual universe',
-        contentPillars: ['Everyday Situations Gone Wrong', 'Impossible Messages, Voices & Sounds'],
-        cadencePerWeek: 28,
-        videosPerRun: 2,
-        defaultFormat: 'story',
-        defaultLength: 'short',
-        successMetric: 'Retention, completion, returning viewers, and subscriber growth',
-        constraints: 'Original fiction only; no semantic duplicates, true crime, gore-first content, or brand drift',
-        status: 'active'
-      });
-      if (strategy.contentPillars.length !== 2 || strategy.cadence_per_week !== 28 || strategy.default_length !== 'short') {
-        throw new Error('Horror Stickman channel strategy was not persisted correctly');
-      }
-
-      const strategyAgent = new ContentStrategyAgent(db, {});
-      const validNicheCandidate = {
-        topic: 'She Got a Text From Her Own Bedroom While She Was Alone',
-        idea: 'Message from the empty room',
-        storyFamily: 'phone-message horror',
-        everydayAnchor: 'alone in an apartment at night',
-        fearMechanism: 'her phone receives a message from a device inside the room she has not entered',
-        hook: 'Her phone buzzed from inside the locked bedroom.',
-        scrollStopMoment: 'A lone dark stickman stares at a glowing phone while a locked bedroom door sits behind her.',
-        visualWhy: 'One figure, one locked door, and one impossible signal are readable instantly.',
-        visualVariety: ['phone buzz in hallway', 'locked bedroom door', 'message changes as she approaches', 'shadow visible under the door'],
-        curiosityAngle: 'Who is sending the message from the locked room?',
-        escalationLadder: ['the sender describes her movement', 'the message says not to open the door just before the handle moves'],
-        payoff: 'The final message comes from her own number and says that the person outside the bedroom is not her.',
-        fitRationale: 'Relatable apartment setting, immediate impossible signal, two escalations, and a recontextualizing final beat.',
-        storyEngine: 'impossible-message',
-        autonomyRisk: 'low',
-        nicheFit: 10,
-        visualStrength: 10,
-        curiosityGap: 10,
-        visualVarietyScore: 9,
-        retentionPotential: 10,
-        originalityScore: 10,
-        brandFit: 10,
-        twistScore: 9,
-        premiseLegibility: 10,
-        payoffStrength: 9,
-        fictional: true
-      };
-      if (!strategyAgent.isApprovedNicheCandidate(validNicheCandidate)) {
-        throw new Error('Strong Horror Stickman candidate failed the locked niche contract');
-      }
-
-      const trueCrimeCandidate = { ...validNicheCandidate, topic: 'True Crime: The Real Murder in Apartment 6', storyEngine: 'ordinary-to-impossible' };
-      if (strategyAgent.isApprovedNicheCandidate(trueCrimeCandidate)) {
-        throw new Error('True-crime dependency bypassed the Horror Stickman contract');
-      }
-      const weakOriginality = { ...validNicheCandidate, originalityScore: 7 };
-      if (strategyAgent.isApprovedNicheCandidate(weakOriginality)) {
-        throw new Error('Low-originality premise bypassed the Horror Stickman originality gate');
-      }
-      const invalidEngineCandidate = { ...validNicheCandidate, storyEngine: 'generic-monster' };
-      if (strategyAgent.isApprovedNicheCandidate(invalidEngineCandidate)) {
-        throw new Error('Candidate without a canonical Horror Stickman story engine was accepted');
-      }
-
-      strategyAgent.analyzeTrends = async function() {
-        this.trendingTopics = [{ topic: 'Apartment horror short pattern', score: 8, sources: ['trending'], evidence: [] }];
-        this.competitorData = [];
-      };
-      strategyAgent.aiTextService = { isAvailable: () => false };
-      const planned = await strategyAgent.researchAndPlanChannel(strategy);
-      if (
-        planned.plan.length !== 2 ||
-        planned.plan.some(item => item.fictional !== true || item.length !== 'short' || item.sourceUrls.length !== 0)
-      ) {
-        throw new Error('Strategy did not produce a fiction-only Horror Stickman autonomous plan');
-      }
-
-      const receivedInputs = [];
-      let resumedJobs = 0;
-      const operator = new AutonomousChannelOperator(db, {
-        researchAndPlan: async () => planned,
-        startGenerationJob: async input => {
-          receivedInputs.push(input);
-          return { id: `fake-job-${receivedInputs.length}` };
-        },
-        waitForGenerationJob: async jobId => ({
-          id: jobId,
-          status: 'completed',
-          production_id: `production-${jobId}`,
-          details: { reviewStatus: 'needs_review' }
-        }),
-        resumeGenerationJob: async jobId => {
-          resumedJobs++;
-          await db.updateGenerationJob(jobId, { status: 'completed', productionId: `production-${jobId}` });
-          return db.getGenerationJob(jobId);
-        }
-      });
-      run = await operator.start(strategy);
-      await operator.activeRuns.get(run.id);
-      const completed = await db.getOperatorRun(run.id);
-      if (
-        completed.status !== 'waiting_review' ||
-        completed.generatedJobs.length !== 2 ||
-        receivedInputs.some(input => input.source !== 'autonomous_operator' || !input.strategyContext?.angle) ||
-        receivedInputs[0].strategyContext.researchSources.length !== 0
-      ) {
-        throw new Error('Autonomous operator did not execute the planned workflow');
-      }
-
-      recoverableJob = await db.createGenerationJob({ topic: planned.plan[0].topic, source: 'autonomous_operator' });
-      await db.updateGenerationJob(recoverableJob.id, { status: 'interrupted', stage: 'script' });
-      const interruptedJobs = completed.generatedJobs.map((item, index) => index === 0
-        ? { ...item, jobId: recoverableJob.id, status: 'interrupted', reviewStatus: null }
-        : item);
-      await db.updateOperatorRun(run.id, {
-        status: 'interrupted',
-        stage: 'producing_1_of_2',
-        progress: 40,
-        generatedJobs: interruptedJobs,
-        error: 'The application restarted before this operator run finished',
-        completedAt: new Date().toISOString()
-      });
-      await operator.resume(run.id, strategy);
-      await operator.activeRuns.get(run.id);
-      const recoveredRun = await db.getOperatorRun(run.id);
-      if (resumedJobs !== 1 || recoveredRun.status !== 'waiting_review' || recoveredRun.generatedJobs[0].status !== 'completed') {
-        throw new Error('Autonomous operator did not continue from its saved plan and interrupted job');
-      }
-    } finally {
-      if (run) {
-        const stored = await db.getOperatorRun(run.id);
-        for (const item of stored?.generatedJobs || []) {
-          if (item.ideaId) await db.executeQuery('DELETE FROM content_ideas WHERE id = ?', [item.ideaId]);
-        }
-        await db.executeQuery('DELETE FROM operator_runs WHERE id = ?', [run.id]);
-      }
-      if (previousStrategy) {
-        await db.saveChannelStrategy({
-          objective: previousStrategy.objective,
-          audience: previousStrategy.audience,
-          valueProposition: previousStrategy.value_proposition,
-          contentPillars: previousStrategy.contentPillars,
-          cadencePerWeek: previousStrategy.cadence_per_week,
-          videosPerRun: previousStrategy.videos_per_run,
-          defaultFormat: previousStrategy.default_format,
-          defaultLength: previousStrategy.default_length,
-          successMetric: previousStrategy.success_metric,
-          constraints: previousStrategy.constraints,
-          status: previousStrategy.status
-        });
-      } else {
-        await db.executeQuery("DELETE FROM channel_strategies WHERE id = 'default'");
-      }
-      if (recoverableJob) await db.executeQuery('DELETE FROM generation_jobs WHERE id = ?', [recoverableJob.id]);
-      await db.close();
-    }
-
-    this.logger.info('Autonomous channel operator test completed successfully');
-  }
-
-  async testAutonomousPlannerJsonReliability() {
-    const { ContentStrategyAgent } = require('./agents/content-strategy-agent');
-    const agent = new ContentStrategyAgent(null, {});
-    const calls = [];
-    const candidate = {
-      topic: 'She Heard Her Own Voice Behind the Locked Door',
-      idea: 'Voice behind the door',
-      storyFamily: 'impossible-sound',
-      everydayAnchor: 'apartment hallway',
-      fearMechanism: 'her own voice answers from a locked empty room',
-      angle: 'the voice starts repeating words before she says them',
-      hook: 'Her own voice whispered behind the locked door.',
-      scrollStopMoment: 'A dark stickman faces a locked door while a second pale speech cue appears behind it.',
-      visualWhy: 'One figure and one impossible source of sound read immediately.',
-      visualVariety: ['hallway and door', 'ear against door', 'phone confirms she is alone', 'shadow under door'],
-      curiosityAngle: 'How can her own voice be inside the empty room?',
-      escalationLadder: ['the voice copies her', 'the voice speaks first'],
-      payoff: 'The voice says her next sentence before she can speak, then the hallway light goes out.',
-      fitRationale: 'Everyday setting, immediate impossible sound, escalation, and final recontextualization.',
-      storyEngine: 'impossible-sound',
-      autonomyRisk: 'low',
-      nicheFit: 10,
-      visualStrength: 9,
-      curiosityGap: 10,
-      visualVarietyScore: 8,
-      retentionPotential: 10,
-      originalityScore: 10,
-      brandFit: 10,
-      twistScore: 9,
-      premiseLegibility: 10,
-      payoffStrength: 9,
-      targetAudience: 'Global English horror Shorts viewers',
-      contentType: 'Story',
-      keywords: ['horror','scary story'],
-      fictional: true
-    };
-
-    agent.aiTextService = {
-      isAvailable: () => true,
-      generateText: async (_prompt, options) => {
-        calls.push(options);
-        if (calls.length === 1) return '{"candidates":[';
-        return JSON.stringify({ candidates: [candidate] });
-      }
-    };
-
-    const plan = await agent.generateAutonomousPlanWithAI({
-      audience: 'Global English horror Shorts viewers',
-      contentPillars: ['Everyday Situations Gone Wrong'],
-      default_format: 'story',
-      default_length: 'short'
-    }, {
-      signals: [],
-      recentTopics: [],
-      approvedLearnings: []
-    }, 1);
-
-    if (calls.length !== 2 || plan.length !== 1 || plan[0].topic !== candidate.topic) {
-      throw new Error('Horror planner did not recover from a truncated JSON response');
-    }
-    if (calls.some(options =>
-      Number(options.maxTokens) < 4096 ||
-      options.thinkingLevel !== 'low' ||
-      options.responseMimeType !== 'application/json'
-    )) {
-      throw new Error('Horror planner does not reserve a reliable JSON output contract');
-    }
-
-    const extracted = agent.parseAIJsonResponse('prefix\n[{"topic":"array extraction"}]\nsuffix');
-    if (!Array.isArray(extracted) || extracted[0]?.topic !== 'array extraction') {
-      throw new Error('Planner JSON parser cannot recover a top-level array from surrounding text');
-    }
-
-    const fictional = await agent.enrichStrategyWithResearch({ ...candidate, researchSources: [{ url: 'https://example.com' }] });
-    if (fictional.fictional !== true || fictional.provenanceMode !== 'fictional' || fictional.researchSources.length !== 0) {
-      throw new Error('Original horror fiction was incorrectly routed through factual provenance research');
-    }
-
-    const normalized = agent.normalizeAutonomousPlan([candidate], { audience: candidate.targetAudience }, 1, { recentTopics: [] });
-    if (normalized.length !== 1 || normalized[0].length !== 'short' || normalized[0].sourceUrls.length !== 0) {
-      throw new Error('Horror planner normalization did not lock fiction/Shorts output');
-    }
-
-    const different = { ...candidate, topic: 'The Elevator Opened on a Floor That Did Not Exist' };
-    agent.generateAutonomousPlanWithAI = async () => [different];
-    let driftRejected = false;
-    try {
-      await agent.generateContentStrategyWithAI(candidate.topic);
-    } catch (error) {
-      driftRejected = error.code === 'STRATEGY_TOPIC_DRIFT';
-    }
-    if (!driftRejected) throw new Error('Requested Horror premise drift was not rejected');
-
-    this.logger.info('Horror planner JSON reliability test completed successfully');
-  }
-
   async testChannelLearningLoop() {
     const fs = require('fs').promises;
     const os = require('os');
     const { ChannelLearningEngine } = require('./utils/channel-learning-engine');
-    const { ContentStrategyAgent } = require('./agents/content-strategy-agent');
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'yaa-learning-'));
     const db = new Database();
     db.dbPath = path.join(directory, 'learning.db');
@@ -624,30 +340,6 @@ class SystemTest {
       const approved = await db.reviewLearningRecommendation(recommendation.id, 'approved');
       if (approved.status !== 'approved') throw new Error('Learning recommendation approval was not persisted');
 
-      const strategyAgent = new ContentStrategyAgent(db, {});
-      strategyAgent.analyzeTrends = async function() {
-        this.trendingTopics = [];
-        this.competitorData = [];
-      };
-      strategyAgent.generateAutonomousPlanWithAI = async function(channelStrategy, research, targetCount) {
-        return this.buildFallbackAutonomousPlan(channelStrategy, research, targetCount);
-      };
-      const planned = await strategyAgent.researchAndPlanChannel({
-        objective: 'Teach useful automation',
-        audience: 'Small teams',
-        value_proposition: 'Practical guidance',
-        contentPillars: ['Automation'],
-        videos_per_run: 1,
-        default_format: 'tutorial',
-        default_length: 'medium'
-      });
-      if (
-        planned.research.approvedLearnings.length !== 1 ||
-        !planned.research.sources.includes('Approved analytics learnings')
-      ) {
-        throw new Error('Approved learning was not supplied to autonomous planning');
-      }
-
       const due = await learning.getDueMeasurementWindows({
         youtube_id: 'unmeasured-video',
         published_at: new Date(Date.now() - 8 * 86400000).toISOString()
@@ -656,30 +348,6 @@ class SystemTest {
         throw new Error('24-hour and 7-day learning windows were not scheduled');
       }
 
-      const { YouTubeAutomationAgent } = require('./index');
-      const { ThumbnailDesignerAgent } = require('./agents/thumbnail-designer-agent');
-      const workflow = new YouTubeAutomationAgent();
-      const titleVariants = workflow.buildTitleExperimentVariants('Automate Your Weekly Reporting');
-      const selected = workflow.validateEditorData(
-        { selectedTitleVariant: 1, selectedThumbnailVariant: 2 },
-        { packagingExperiment: { titleVariants, thumbnailVariants: [{}, {}, {}] } }
-      );
-      if (titleVariants.length !== 3 || selected.selectedTitleVariant !== 1 || selected.selectedThumbnailVariant !== 2) {
-        throw new Error('Packaging experiment selections were not validated');
-      }
-
-      const thumbnailDesigner = new ThumbnailDesignerAgent(db, {});
-      thumbnailDesigner.createThumbnail = async (_concept, suffix) => `base-${suffix}`;
-      thumbnailDesigner.addTextOverlay = async (_path, _concept, suffix) => `overlay-${suffix}`;
-      thumbnailDesigner.optimizeForYouTube = async (_path, suffix) => `optimized-${suffix}.jpg`;
-      const thumbnailVariants = await thumbnailDesigner.generateABVariants({
-        primaryText: 'GUIDE',
-        colors: { primary: 'blue', secondary: 'white', accent: 'green' },
-        composition: 'split'
-      });
-      if (thumbnailVariants.length !== 3 || thumbnailVariants.some(item => !item.path.endsWith('.jpg'))) {
-        throw new Error('Approved packaging learning did not produce complete thumbnail variants');
-      }
     } finally {
       await db.close();
       await fs.rm(directory, { recursive: true, force: true });
@@ -1051,16 +719,15 @@ class SystemTest {
     const service = new ProductionReadinessService(db, { credentials: {} }, {
       probes: {
         text: passingProbe('Text'),
-        image: passingProbe('Image'),
-        videoProvider: passingProbe('Video provider'),
+        documentary: passingProbe('Documentary render'),
         narration: passingProbe('Narration'),
         videoAssembly: passingProbe('Video'),
         youtube: passingProbe('YouTube'),
         metadata: passingProbe('Metadata')
       }
     });
-    const passed = await service.run({ includePaidMedia: true });
-    if (passed.status !== 'passed' || passed.checks.length !== 7 || !savedRun) {
+    const passed = await service.run();
+    if (passed.status !== 'passed' || passed.checks.length !== 6 || !savedRun) {
       throw new Error('A successful readiness run was not persisted correctly');
     }
     await service.assertReady('Test automation');
@@ -1068,8 +735,7 @@ class SystemTest {
     const failingService = new ProductionReadinessService(db, { credentials: {} }, {
       probes: {
         text: passingProbe('Text'),
-        image: passingProbe('Image'),
-        videoProvider: passingProbe('Video provider'),
+        documentary: passingProbe('Documentary render'),
         narration: passingProbe('Narration'),
         videoAssembly: passingProbe('Video'),
         youtube: async () => { throw new Error('token rejected sk-secret-value'); },
@@ -1109,7 +775,7 @@ class SystemTest {
       await persistenceDb.initialize();
       await persistenceDb.saveReadinessRun(passed);
       const persisted = await persistenceDb.getLatestReadinessRun();
-      if (persisted?.id !== passed.id || persisted.checks.length !== 7 || persisted.summary.passed !== 7) {
+      if (persisted?.id !== passed.id || persisted.checks.length !== 6 || persisted.summary.passed !== 6) {
         throw new Error('Readiness evidence did not round-trip through SQLite');
       }
     } finally {
@@ -1117,701 +783,6 @@ class SystemTest {
       await fs.rm(directory, { recursive: true, force: true });
     }
     this.logger.info('Production readiness gate test completed successfully');
-  }
-
-  async testVideoProviderLayer() {
-    const fs = require('fs').promises;
-    const os = require('os');
-    const { runFFmpeg, checkFFmpeg } = require('./utils/ffmpeg');
-    const { MediaGenerationService } = require('./utils/media-generation-service');
-    const {
-      VideoProvider, VideoProviderRegistry, SeedanceProvider, MiniMaxH3Provider,
-      GoogleOmniProvider, KlingProvider, WanProvider
-    } = require('./utils/video-providers');
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'yaa-media-provider-'));
-    const db = new Database();
-    db.dbPath = path.join(directory, 'media.db');
-    await db.initialize();
-    const job = await db.createGenerationJob({ topic: 'Provider durability test' });
-    const source = path.join(directory, 'source.mp4');
-    let createCalls = 0;
-    let pollCalls = 0;
-
-    try {
-      if (!(await checkFFmpeg())) {
-        this.logger.warn('Skipping provider MP4 durability assertion because FFmpeg is unavailable');
-        return;
-      }
-      await runFFmpeg(['-y', '-f', 'lavfi', '-i', 'color=c=red:s=320x180:d=1', '-c:v', 'mpeg4', source]);
-      const fake = new VideoProvider('seedance', {
-        model: 'bytedance/seedance-2.5',
-        capabilities: { minDuration: 4, maxDuration: 30, cancellation: true }
-      });
-      fake.isAvailable = () => true;
-      fake.createTask = async () => {
-        createCalls++;
-        return { externalTaskId: 'prediction-1', status: 'queued' };
-      };
-      fake.getTask = async id => {
-        pollCalls++;
-        return { externalTaskId: id, status: 'succeeded', outputUrl: 'fake://video' };
-      };
-      fake.downloadResult = async (_task, outputPath) => {
-        await fs.copyFile(source, outputPath);
-        return outputPath;
-      };
-      const registry = new VideoProviderRegistry({}, { providers: { seedance: fake } });
-      const service = new MediaGenerationService(db, {}, { registry, pollIntervalMs: 10, sleep: async () => {} });
-      const output = path.join(directory, 'output.mp4');
-      const input = {
-        jobId: job.id,
-        productionId: 'prod-provider-test',
-        scene: { index: 0 },
-        provider: fake,
-        outputPath: output,
-        request: { prompt: 'A red frame', duration: 4, resolution: '720p', aspectRatio: '16:9' }
-      };
-      const first = await service.generateClip(input);
-      const second = await service.generateClip(input);
-      const tasks = await db.listMediaGenerationTasks(job.id);
-      if (createCalls !== 1 || pollCalls !== 1 || !second.reused || tasks.length !== 1) {
-        throw new Error('A completed provider task was duplicated instead of being reused');
-      }
-      if (first.task.external_task_id !== 'prediction-1' || tasks[0].model !== 'bytedance/seedance-2.5') {
-        throw new Error('Provider task identity and model evidence did not persist');
-      }
-      const providers = registry.list();
-      for (const id of ['seedance', 'minimax_h3', 'google_omni', 'kling', 'wan', 'slideshow']) {
-        if (!providers.find(provider => provider.id === id)) throw new Error(`Missing video provider: ${id}`);
-      }
-      const shortOnly = new VideoProvider('wan', { model: 'wan-test', capabilities: { minDuration: 2, maxDuration: 15, firstFrame: true } });
-      shortOnly.isAvailable = () => true;
-      const routed = new VideoProviderRegistry({}, { providers: { seedance: fake, wan: shortOnly } });
-      if (routed.select('auto', ['wan', 'seedance'], { duration: 20 }).id !== 'seedance') {
-        throw new Error('Automatic video routing ignored the requested duration capability');
-      }
-      if (routed.select('auto', ['seedance', 'wan'], { duration: 8, generateAudio: true }).id !== 'slideshow') {
-        throw new Error('Automatic video routing selected a provider without requested native audio support');
-      }
-      const listedJob = (await db.listGenerationJobs(10)).find(item => item.id === job.id);
-      if (listedJob?.mediaTasks?.length !== 1 || listedJob.mediaTasks[0].external_task_id !== 'prediction-1') {
-        throw new Error('Generation job history did not expose its durable provider task');
-      }
-
-      let seedanceSubmission;
-      const seedance = new SeedanceProvider({}, { client: { predictions: {
-        create: async submission => {
-          seedanceSubmission = submission;
-          return { id: 'seedance-task', status: 'starting' };
-        }
-      } } });
-      const seedanceTask = await seedance.createTask({ prompt: 'Seedance scene', duration: 30, aspectRatio: '16:9' });
-      if (seedanceTask.externalTaskId !== 'seedance-task' || seedanceSubmission.model !== 'bytedance/seedance-2.5' || seedanceSubmission.input.duration !== 30) {
-        throw new Error('Seedance adapter did not submit the expected Replicate task');
-      }
-      const fileOutput = seedance.normalizeTask({ id: 'file-output', status: 'succeeded', output: { url: () => new URL('https://example.com/video.mp4') } });
-      if (fileOutput.outputUrl !== 'https://example.com/video.mp4') throw new Error('Seedance FileOutput was not normalized');
-
-      let minimaxBody;
-      const minimax = new MiniMaxH3Provider({}, { apiKey: 'test', http: {
-        post: async (_url, body) => { minimaxBody = body; return { data: { task_id: 'h3-task' } }; }
-      } });
-      const minimaxTask = await minimax.createTask({ prompt: 'H3 scene', duration: 15, resolution: '2K', aspectRatio: '9:16' });
-      if (minimaxTask.externalTaskId !== 'h3-task' || minimaxBody.model !== 'MiniMax-H3' || minimaxBody.content[0].type !== 'text') {
-        throw new Error('MiniMax H3 adapter did not submit the expected multimodal task');
-      }
-
-      let googleName;
-      const google = new GoogleOmniProvider({}, { client: {
-        interactions: { create: async () => ({ id: 'omni-task', output_video: { uri: 'https://generativelanguage.googleapis.com/v1beta/files/omni-file:download?alt=media' } }) },
-        files: { get: async ({ name }) => { googleName = name; return { state: { name: 'ACTIVE' } }; } }
-      } });
-      const googleTask = await google.createTask({ prompt: 'Omni scene', aspectRatio: '16:9' });
-      await google.getTask(googleTask.externalTaskId);
-      if (googleTask.status !== 'queued' || googleName !== 'files/omni-file') throw new Error('Gemini Omni URI task was not normalized for polling');
-
-      let klingBody;
-      const kling = new KlingProvider({}, { accessKey: 'access', secretKey: 'secret', http: {
-        post: async (_url, body) => { klingBody = body; return { data: { data: { task_id: 'kling-task' } } }; }
-      } });
-      const klingTask = await kling.createTask({ prompt: 'Kling scene', duration: 8, aspectRatio: '16:9' });
-      if (klingTask.externalTaskId !== 'kling-task' || klingBody.model_name !== 'kling-v3-omni' || klingBody.sound !== 'off') {
-        throw new Error('Kling adapter did not submit the expected task');
-      }
-
-      let wanBody;
-      const wan = new WanProvider({}, { apiKey: 'test', http: {
-        post: async (_url, body) => { wanBody = body; return { data: { output: { task_id: 'wan-task' } } }; }
-      } });
-      const wanTask = await wan.createTask({ prompt: 'Wan scene', duration: 10, resolution: '720p', aspectRatio: '16:9' });
-      if (wanTask.externalTaskId !== 'wan-task' || wanBody.model !== 'wan2.7-t2v-2026-06-12' || wanBody.parameters.resolution !== '720P') {
-        throw new Error('Wan adapter did not submit the expected task-specific model payload');
-      }
-    } finally {
-      await db.close();
-      await fs.rm(directory, { recursive: true, force: true });
-    }
-    this.logger.info('Durable multi-provider video generation test completed successfully');
-  }
-
-  async testSceneRepairStudio() {
-    const fs = require('fs').promises;
-    const os = require('os');
-    const sharp = require('sharp');
-    const { SceneRepairService, buildInitialSceneManifest } = require('./utils/scene-repair-service');
-    const { OperatorService } = require('./utils/operator-service');
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'yaa-scene-repair-'));
-    const db = new Database();
-    db.dbPath = path.join(directory, 'scenes.db');
-    await db.initialize();
-
-    try {
-      const imagePath = path.join(directory, 'scene.png');
-      const oldVideoPath = path.join(directory, 'old.mp4');
-      const originalAudioPath = path.join(directory, 'original.mp3');
-      await sharp({ create: { width: 320, height: 180, channels: 3, background: '#203a5f' } }).png().toFile(imagePath);
-      await fs.writeFile(oldVideoPath, Buffer.from('previous final video'));
-      await fs.writeFile(originalAudioPath, Buffer.from('previous narration'));
-      const production = {
-        id: `prod_scene_${Date.now()}`,
-        status: 'ready',
-        script: {
-          title: 'Repair one scene',
-          fullScript: 'A complete factual-review-safe script for testing selective scene repair without replacing the entire production.',
-          hook: { text: 'Fix one weak moment without starting over.' },
-          introduction: { greeting: 'Hello.', topicIntro: 'Scene repair matters.', valueProposition: 'Save time and credits.' },
-          mainContent: { sections: [
-            { title: 'Selective repair', content: 'Keep the scenes that work and replace only the scene that does not.' },
-            { title: 'Examples', content: ['Example 1: [Specific case study]', 'A real example without template markers.'] }
-          ] },
-          conclusion: { recap: ['Preserve good work.'], finalThought: 'Review the repaired timeline.' },
-          callToAction: {
-            type: 'call_to_action', duration: '15 seconds', subscribe: 'Subscribe.', like: 'Like.',
-            comment: 'Comment.', nextVideo: 'Watch the next video.'
-          }
-        },
-        seo: { title: 'Repair one scene', description: 'A detailed description of selective scene repair for video production workflows.', tags: ['video', 'repair', 'workflow'] },
-        strategy: { topic: 'Selective scene repair' },
-        assets: {
-          video: { visualAssets: [imagePath] },
-          audio: { path: originalAudioPath, status: 'ready', simulated: false, provider: 'fixture-tts', model: 'fixture-voice' },
-          thumbnail: { path: imagePath },
-          finalVideo: { path: oldVideoPath, simulated: false, duration: '1:00', provider: { actualProvider: 'slideshow' } }
-        },
-        timeline: { readyForUpload: new Date().toISOString() },
-        scheduledPublishTime: new Date(Date.now() + 86400000).toISOString(),
-        priority: 50,
-        estimatedDuration: '1:00'
-      };
-      await db.saveProductionData(production);
-      await db.saveProductionSnapshot(production);
-      await db.saveContentReview(production.id, { status: 'needs_review', editorData: {}, qualityChecks: [] });
-      await db.saveContentProvenance(production.id, {
-        sources: [], claims: [], containsSyntheticMedia: false, status: 'not_required',
-        summary: { sourceCount: 0, verifiedSources: 0, claimCount: 0, resolvedClaims: 0, highRiskClaims: 0, unresolvedClaims: 0 }
-      });
-      await db.saveChannelProfile({ channelName: 'Test channel', visualStyle: 'animated' });
-
-      const manifest = buildInitialSceneManifest(production, { actualProvider: 'slideshow', model: 'local-ffmpeg' });
-      if (manifest.length < 3 || manifest.some(scene => scene.assetPath !== imagePath)) {
-        throw new Error('Initial scene manifest did not preserve the script structure and visual assets');
-      }
-      const examplesScene = manifest.find(scene => scene.label === 'Examples');
-      const ctaScene = manifest.find(scene => scene.label === 'Call to action');
-      if (/\[[^\]]*\]/.test(examplesScene?.scriptText || '') || examplesScene?.scriptText !== 'A real example without template markers.') {
-        throw new Error('Template placeholders leaked into scene narration');
-      }
-      if (ctaScene?.scriptText !== 'Subscribe. Like. Comment. Watch the next video.') {
-        throw new Error('Call-to-action metadata leaked into spoken narration');
-      }
-      await db.replaceProductionScenes(production.id, manifest);
-      for (const scene of await db.listProductionScenes(production.id)) {
-        await db.updateProductionScene(production.id, scene.id, {
-          audioPath: originalAudioPath, narrationStatus: 'current',
-          narrationProvider: 'fixture-tts', narrationModel: 'fixture-voice'
-        });
-      }
-      const roundTrip = await db.listProductionScenes(production.id);
-      if (roundTrip.length !== manifest.length || roundTrip[0].scriptText !== manifest[0].scriptText) {
-        throw new Error('Scene manifest did not round-trip through SQLite');
-      }
-
-      const fakeProvider = {
-        id: 'seedance', model: 'seedance-test',
-        normalizeRequest: request => ({ ...request, duration: Math.min(4, Number(request.duration || 4)) })
-      };
-      let useSlideshow = false;
-      let regeneratedVisualStyle = null;
-      const fakeGenerator = {
-        mediaGeneration: {
-          settings: async () => ({ provider: 'seedance', order: ['seedance'], clipDuration: 4, resolution: '720p', aspectRatio: '16:9' }),
-          registry: { select: () => useSlideshow ? { id: 'slideshow' } : fakeProvider, get: () => fakeProvider },
-          generateClip: async ({ outputPath }) => {
-            await fs.mkdir(path.dirname(outputPath), { recursive: true });
-            await fs.writeFile(outputPath, Buffer.from('generated scene video'));
-            return { outputPath, task: { model: fakeProvider.model, external_task_id: 'scene-task-1' } };
-          },
-          isValidVideo: async () => true
-        },
-        generateVisualAssets: async (_prompt, style) => { regeneratedVisualStyle = style; return [imagePath]; },
-        async generateTTSAudio(_text, outputPath) {
-          await fs.writeFile(outputPath, Buffer.from('scene narration'));
-          this.lastNarrationResult = {
-            status: 'ready', path: outputPath, provider: 'fixture-tts', model: 'fixture-voice-v2',
-            externalTaskId: 'narration-task-1', generatedAt: new Date().toISOString(),
-            cost: { provider: 'fixture-tts', amount: null, invoiceRequired: true }
-          };
-          return outputPath;
-        },
-        isUsableAudioFile: async filePath => Boolean(filePath && await fs.stat(filePath).then(stat => stat.size > 0).catch(() => false)),
-        renderMediaTimeline: async (_segments, outputPath) => { await fs.writeFile(outputPath, Buffer.from('rebuilt visual timeline')); return outputPath; },
-        addAudioToVideo: async (videoPath, _audioPath, outputPath) => { await fs.copyFile(videoPath, outputPath); return outputPath; }
-      };
-      const service = new SceneRepairService(db, fakeGenerator, { dataRoot: directory, logger: this.logger });
-      service.rebuildNarration = async () => originalAudioPath;
-      const first = roundTrip[0];
-      const edited = await service.updateScene(production.id, first.id, {
-        scriptText: `${first.scriptText} Updated narration.`, prompt: `${first.prompt} Brighter composition.`, factualChange: false
-      });
-      if (edited.status !== 'visual_stale' || edited.narrationStatus !== 'stale' || edited.revision !== first.revision + 1) {
-        throw new Error('Scene edits did not invalidate only the scene rebuild and narration state');
-      }
-
-      const quality = await new OperatorService(db).runQualityChecks({ ...(await db.getProductionBundle(production.id)), scenes: await db.listProductionScenes(production.id) }, {});
-      if (quality.passed || !quality.blockingFailures.includes('scene_integrity')) {
-        throw new Error('Approval quality checks did not block an unrepaired scene');
-      }
-      const estimate = await service.regenerationEstimate(production.id, first.id);
-      if (!estimate.paid || estimate.provider !== 'seedance') throw new Error('Paid scene estimate did not expose provider billing risk');
-      let paidBlocked = false;
-      try {
-        await service.regenerate(production.id, first.id, { regenerateNarration: true });
-      } catch (error) {
-        paidBlocked = error.code === 'PAID_CONFIRMATION_REQUIRED';
-      }
-      if (!paidBlocked) throw new Error('Paid scene regeneration started without explicit confirmation');
-      const regenerated = await service.regenerate(production.id, first.id, { confirmPaid: true, regenerateNarration: true });
-      if (
-        regenerated.scene.status !== 'needs_rebuild' || regenerated.scene.externalTaskId !== 'scene-task-1' ||
-        regenerated.scene.narrationStatus !== 'current' || regenerated.scene.narrationProvider !== 'fixture-tts' ||
-        regenerated.scene.narrationTaskId !== 'narration-task-1'
-      ) {
-        throw new Error('Confirmed selective regeneration did not persist visual and narration evidence');
-      }
-      useSlideshow = true;
-      await service.regenerate(production.id, roundTrip[1].id);
-      if (regeneratedVisualStyle !== 'animated') {
-        throw new Error('Scene regeneration ignored the configured channel visual style');
-      }
-
-      const second = roundTrip[1];
-      const replacement = await sharp({ create: { width: 320, height: 180, channels: 3, background: '#ad3d45' } }).png().toBuffer();
-      let rightsBlocked = false;
-      try {
-        await service.replaceAsset(production.id, second.id, { buffer: replacement, contentType: 'image/png', filename: 'replacement.png' });
-      } catch (error) {
-        rightsBlocked = error.code === 'RIGHTS_CONFIRMATION_REQUIRED';
-      }
-      if (!rightsBlocked) throw new Error('Uploaded scene asset bypassed rights confirmation');
-      const replaced = await service.replaceAsset(production.id, second.id, {
-        buffer: replacement, contentType: 'image/png', filename: 'replacement.png', rightsConfirmed: true
-      });
-      if (replaced.assetOrigin !== 'uploaded' || !replaced.rightsConfirmed || replaced.status !== 'needs_rebuild') {
-        throw new Error('Replacement asset evidence did not persist');
-      }
-
-      const ordered = await service.reorder(production.id, (await db.listProductionScenes(production.id)).map(scene => scene.id).reverse());
-      if (ordered[0].id === first.id) throw new Error('Scene timeline order did not persist');
-      const rebuilt = await service.rebuild(production.id);
-      const finalBundle = await db.getProductionBundle(production.id);
-      if (!rebuilt.finalVideo || finalBundle.assets.finalVideo.previousPath !== oldVideoPath || finalBundle.scenes.some(scene => scene.status !== 'ready')) {
-        throw new Error('Scene rebuild did not preserve the prior video and finalize every scene');
-      }
-      const revisions = await db.listProductionSceneRevisions(production.id);
-      for (const action of ['edit', 'regenerate', 'replace_asset', 'reorder', 'rebuild']) {
-        if (!revisions.some(revision => revision.action === action)) throw new Error(`Scene revision history is missing ${action}`);
-      }
-
-      const locked = await service.updateScene(production.id, ordered[0].id, { locked: true });
-      let lockBlocked = false;
-      try {
-        await service.updateScene(production.id, locked.id, { prompt: 'Unauthorized locked edit' });
-      } catch (error) {
-        lockBlocked = error.status === 409;
-      }
-      if (!lockBlocked) throw new Error('Locked scene accepted an edit');
-    } finally {
-      await db.close();
-      await fs.rm(directory, { recursive: true, force: true });
-    }
-    this.logger.info('Scene Repair Studio test completed successfully');
-  }
-
-  async testNarrationReliability() {
-    const fs = require('fs').promises;
-    const os = require('os');
-    const { SceneRepairService } = require('./utils/scene-repair-service');
-    const { OperatorService } = require('./utils/operator-service');
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'yaa-narration-'));
-    const db = new Database();
-    db.dbPath = path.join(directory, 'narration.db');
-    await db.initialize();
-
-    try {
-      const productionId = 'prod-narration-recovery';
-      const visualPath = path.join(directory, 'scene.png');
-      const videoPath = path.join(directory, 'video.mp4');
-      await fs.writeFile(visualPath, Buffer.from('visual'));
-      await fs.writeFile(videoPath, Buffer.from('video'));
-      const production = {
-        id: productionId, status: 'ready',
-        strategy: { topic: 'Narration recovery' },
-        script: {
-          title: 'Narration recovery',
-          fullScript: 'A complete script that demonstrates reliable narration recovery and explicit operator controls.'.repeat(4)
-        },
-        seo: {
-          title: 'Narration recovery',
-          description: 'A detailed explanation of reliable narration recovery for production workflows.',
-          tags: ['narration', 'recovery', 'workflow']
-        },
-        assets: {
-          audio: { path: path.join(directory, 'missing.mp3.info'), status: 'unavailable', simulated: true, error: 'Provider quota exhausted' },
-          finalVideo: { path: videoPath, simulated: false }, thumbnail: { path: visualPath }
-        },
-        timeline: {}, priority: 50, scheduledPublishTime: new Date(Date.now() + 86400000).toISOString()
-      };
-      await db.saveProductionData(production);
-      await db.saveProductionSnapshot(production);
-      await db.replaceProductionScenes(productionId, [{
-        id: 'scene-narration-1', label: 'Opening', scriptText: 'This narration must be recovered.',
-        prompt: 'Opening visual', duration: 8, assetType: 'image', assetOrigin: 'generated', assetPath: visualPath,
-        status: 'ready', narrationStatus: 'unavailable', narrationError: 'Provider quota exhausted', rightsConfirmed: true
-      }]);
-
-      const blockedQuality = await new OperatorService(db).runQualityChecks({
-        ...production, scenes: await db.listProductionScenes(productionId)
-      }, {});
-      if (blockedQuality.passed || !blockedQuality.blockingFailures.includes('narration')) {
-        throw new Error('Missing narration did not block production quality');
-      }
-
-      let failProvider = true;
-      const generator = {
-        async generateTTSAudio(_text, outputPath) {
-          if (failProvider) {
-            this.lastNarrationResult = {
-              status: 'failed', provider: 'openai', model: 'gpt-4o-mini-tts',
-              generatedAt: new Date().toISOString(), error: 'Provider quota exhausted',
-              cost: { provider: 'openai', amount: null, invoiceRequired: true }
-            };
-            throw new Error('Provider quota exhausted');
-          }
-          await fs.writeFile(outputPath, Buffer.from('recovered narration'));
-          this.lastNarrationResult = {
-            status: 'ready', path: outputPath, provider: 'openai', model: 'gpt-4o-mini-tts',
-            externalTaskId: 'tts-task-1', generatedAt: new Date().toISOString(),
-            cost: { provider: 'openai', amount: null, invoiceRequired: true }
-          };
-          return outputPath;
-        },
-        isUsableAudioFile: async filePath => Boolean(filePath && await fs.stat(filePath).then(stat => stat.size > 0).catch(() => false))
-      };
-      const service = new SceneRepairService(db, generator, {
-        dataRoot: directory, logger: this.logger, getMediaDuration: async () => 5.25
-      });
-
-      let confirmationBlocked = false;
-      try {
-        await service.regenerateNarration(productionId, 'scene-narration-1');
-      } catch (error) {
-        confirmationBlocked = error.code === 'NARRATION_COST_CONFIRMATION_REQUIRED';
-      }
-      if (!confirmationBlocked) throw new Error('Narration regeneration bypassed the provider-cost confirmation');
-
-      let outagePersisted = false;
-      try {
-        await service.regenerateNarration(productionId, 'scene-narration-1', { confirmCost: true });
-      } catch (_error) {
-        const failed = await db.getProductionScene(productionId, 'scene-narration-1');
-        outagePersisted = failed.narrationStatus === 'failed' && failed.narrationProvider === 'openai' && /quota/.test(failed.narrationError);
-      }
-      if (!outagePersisted) throw new Error('Narration provider failure evidence was not persisted');
-
-      failProvider = false;
-      const recovered = await service.regenerateNarration(productionId, 'scene-narration-1', { confirmCost: true });
-      if (
-        recovered.narrationStatus !== 'current' || recovered.narrationProvider !== 'openai' ||
-        recovered.narrationModel !== 'gpt-4o-mini-tts' || recovered.narrationTaskId !== 'tts-task-1' ||
-        recovered.status !== 'needs_rebuild' || recovered.duration !== 5.75
-      ) {
-        throw new Error('Narration-only recovery did not preserve provider evidence and rebuild state');
-      }
-
-      let weakSilenceBlocked = false;
-      try {
-        await service.setSilenceOverride(productionId, { enabled: true, confirmed: true, reason: 'silent' });
-      } catch (error) {
-        weakSilenceBlocked = /at least 10/.test(error.message);
-      }
-      if (!weakSilenceBlocked) throw new Error('Intentional silence was accepted without a meaningful reason');
-
-      await service.setSilenceOverride(productionId, {
-        enabled: true, confirmed: true, reason: 'This visual demonstration intentionally uses captions only.'
-      });
-      const silenceBundle = await db.getProductionBundle(productionId);
-      const silenceQuality = await new OperatorService(db).runQualityChecks(silenceBundle, {});
-      const narrationCheck = silenceQuality.checks.find(check => check.id === 'narration');
-      if (!narrationCheck?.passed || silenceBundle.scenes[0].narrationStatus !== 'intentional_silence') {
-        throw new Error('Confirmed intentional silence did not satisfy the narration evidence gate');
-      }
-
-      const revisions = await db.listProductionSceneRevisions(productionId);
-      for (const action of ['regenerate_narration', 'confirm_intentional_silence']) {
-        if (!revisions.some(revision => revision.action === action)) throw new Error(`Narration history is missing ${action}`);
-      }
-    } finally {
-      await db.close();
-      await fs.rm(directory, { recursive: true, force: true });
-    }
-    this.logger.info('Narration reliability and recovery test completed successfully');
-  }
-
-  async testDocumentaryOrchestrationContract() {
-    const { YouTubeAutomationAgent } = require('./index');
-    const { DailyAutomation } = require('./schedules/daily-automation');
-    const { PublishingSchedulingAgent } = require('./agents/publishing-scheduling-agent');
-    const { ContentStrategyAgent } = require('./agents/content-strategy-agent');
-    const { ScriptWriterAgent } = require('./agents/script-writer-agent');
-    const { ThumbnailDesignerAgent } = require('./agents/thumbnail-designer-agent');
-    const { SEOOptimizerAgent } = require('./agents/seo-optimizer-agent');
-    const { ProductionManagementAgent } = require('./agents/production-management-agent');
-    const { AIVideoGenerator } = require('./utils/ai-video-generator');
-    const fs = require('fs').promises;
-
-    const agent = new YouTubeAutomationAgent();
-    const strategyDefaults = agent.validateChannelStrategy({
-      objective: 'Grow an original Horror Stickman Shorts channel',
-      audience: 'Global English horror Shorts viewers',
-      contentPillars: ['Everyday Situations Gone Wrong'],
-      status: 'active'
-    }, {});
-    if (
-      strategyDefaults.defaultFormat !== 'story' ||
-      strategyDefaults.defaultLength !== 'short' ||
-      strategyDefaults.cadencePerWeek !== 21
-    ) {
-      throw new Error('Operator defaults do not match the canonical Horror Stickman 3/day (21/week) Shorts contract');
-    }
-
-    const now = Date.now();
-    let lastGeneration = new Date(now - 3 * 3600000).toISOString();
-    const scheduler = new DailyAutomation({}, {
-      getChannelStrategy: async () => ({ status: 'active', cadence_per_week: 28 }),
-      getAllRows: async () => [],
-      getSetting: async key => key === 'last_content_generation' ? lastGeneration : null
-    }, {});
-    if (await scheduler.shouldGenerateContentToday()) {
-      throw new Error('Horror Shorts pacing ignored the ~6-hour 28/week generation interval');
-    }
-    lastGeneration = new Date(now - 7 * 3600000).toISOString();
-    if (!await scheduler.shouldGenerateContentToday()) {
-      throw new Error('Horror Shorts pacing did not allow the next due generation window');
-    }
-
-    // Without an explicit cadence the gate falls back to the channel identity: 3/day = 21/week = one Short per 8 hours.
-    let defaultLast = new Date(now - 7 * 3600000).toISOString();
-    const defaultPaced = new DailyAutomation({}, {
-      getChannelStrategy: async () => ({ status: 'active' }),
-      getAllRows: async () => [],
-      getSetting: async key => key === 'last_content_generation' ? defaultLast : null
-    }, {});
-    if (await defaultPaced.shouldGenerateContentToday()) {
-      throw new Error('Default Horror Shorts pacing ignored the 8-hour (21/week) generation interval');
-    }
-    defaultLast = new Date(now - 9 * 3600000).toISOString();
-    if (!await defaultPaced.shouldGenerateContentToday()) {
-      throw new Error('Default Horror Shorts pacing did not allow the next due window after 8 hours');
-    }
-
-    const existingPublishTime = new Date(now + 8 * 3600000).toISOString();
-    const publishing = new PublishingSchedulingAgent({
-      getChannelStrategy: async () => ({ status: 'active', cadence_per_week: 28 }),
-      getScheduleEntriesInRange: async () => [{
-        id: 'existing-short',
-        publishTime: existingPublishTime,
-        metadata: { contentType: 'short' },
-        status: 'scheduled'
-      }]
-    }, {});
-    let cadenceBlocked = false;
-    try {
-      await publishing.assertPublishingCadence(
-        new Date(new Date(existingPublishTime).getTime() + 2 * 3600000).toISOString(),
-        'short'
-      );
-    } catch (error) {
-      cadenceBlocked = error.code === 'CADENCE_CONFLICT';
-    }
-    if (!cadenceBlocked) throw new Error('Core Shorts cadence allowed uploads too close together');
-
-    const previousAutonomousMode = process.env.AUTONOMOUS_MODE;
-    process.env.AUTONOMOUS_MODE = 'true';
-    try {
-      const strategyFallbackAgent = new ContentStrategyAgent({
-        saveContentStrategy: async () => {}
-      }, {});
-      strategyFallbackAgent.aiTextService.isAvailable = () => true;
-      strategyFallbackAgent.historicalPerformance = [];
-      strategyFallbackAgent.trendingTopics = [];
-      strategyFallbackAgent.competitorData = [];
-      strategyFallbackAgent.generateContentStrategyWithAI = async () => {
-        const drift = new Error('Horror strategy substituted a different requested premise');
-        drift.code = 'STRATEGY_TOPIC_DRIFT';
-        throw drift;
-      };
-      const fallbackStrategy = await strategyFallbackAgent.generateContentStrategy(
-        'The Night Guard Saw Himself on a Camera From Tomorrow'
-      );
-      if (
-        fallbackStrategy.topic !== 'The Night Guard Saw Himself on a Camera From Tomorrow' ||
-        fallbackStrategy.storyEngine !== 'viewer-knows-first' ||
-        fallbackStrategy.generationSource !== 'deterministic-fallback' ||
-        !strategyFallbackAgent.isApprovedNicheCandidate(fallbackStrategy)
-      ) {
-        throw new Error('Deterministic Horror strategy fallback no longer preserves the requested premise and hard gates');
-      }
-
-      const writer = Object.create(ScriptWriterAgent.prototype);
-      const range = writer.targetNarrationWordRange({});
-      if (range.min !== 90 || range.max !== 140) throw new Error('Horror script word contract is not 90-140');
-
-      const flagshipStrategy = {
-        topic: 'She Got a Text From Her Own Bedroom While She Was Alone',
-        idea: 'The Text From Upstairs',
-        hook: 'Her phone buzzed from inside the locked bedroom',
-        everydayAnchor: 'A woman sits downstairs alone while her locked bedroom is empty',
-        fearMechanism: 'messages begin arriving from the phone location inside the locked bedroom',
-        escalationLadder: [
-          'the messages describe what she is doing downstairs',
-          'the bedroom door handle begins moving while another message arrives'
-        ],
-        visualVariety: [
-          'stickman holding glowing phone downstairs',
-          'dark staircase leading toward bedroom',
-          'locked bedroom door with moving handle',
-          'phone showing a message from her own number',
-          'second shadow appearing behind the downstairs stickman'
-        ],
-        storyEngine: 'impossible-message',
-        payoff: 'The final message comes from her own number and says the person outside the bedroom is not her.',
-        nicheFit: 10,
-        visualStrength: 10,
-        curiosityGap: 10,
-        visualVarietyScore: 9,
-        retentionPotential: 10,
-        originalityScore: 10,
-        brandFit: 10,
-        twistScore: 9,
-        premiseLegibility: 10,
-        payoffStrength: 9,
-        fictional: true
-      };
-
-      const deterministicFallback = writer.buildDeterministicHorrorFallback(flagshipStrategy, 'regression-test');
-      if (
-        deterministicFallback.metadata?.spokenWordCount < 90 ||
-        deterministicFallback.metadata?.spokenWordCount > 140 ||
-        deterministicFallback.mainContent?.sections?.length < 4 ||
-        deterministicFallback.mainContent?.sections?.length > 7 ||
-        writer.scriptContractIssues(deterministicFallback).length
-      ) {
-        throw new Error('Deterministic Horror script fallback no longer satisfies the same production contract');
-      }
-
-      const thumbnailGate = new ThumbnailDesignerAgent({ saveThumbnail: async () => {} }, {});
-      thumbnailGate.assertAutonomousThumbnailContract({
-        score: 96,
-        visualIdea: 'A lone dark stickman stares at a glowing phone while a locked bedroom door creates one impossible threat cue behind her.',
-        truthBoundary: 'Original fiction only; no gore, real people, logos, or twist spoiler.',
-        scoring: { brandConsistency: 100, curiosity: 96, engineAlignment: 100 }
-      }, flagshipStrategy);
-      let weakVisualRejected = false;
-      try {
-        thumbnailGate.assertAutonomousThumbnailContract({
-          score: 70,
-          visualIdea: 'Bright funny cartoon.',
-          truthBoundary: '',
-          scoring: { brandConsistency: 30, curiosity: 40 }
-        }, flagshipStrategy);
-      } catch (error) {
-        weakVisualRejected = error.code === 'AUTONOMOUS_THUMBNAIL_CONTRACT';
-      }
-      if (!weakVisualRejected) throw new Error('Bright/comedic visual hook bypassed the Horror brand gate');
-
-      const packagingGate = new SEOOptimizerAgent({ getKeywordHistory: async () => [] }, {});
-      packagingGate.assertAutonomousPackagingContract({
-        selected: {
-          title: 'She Got a Text From Her Own Bedroom',
-          score: 94,
-          scoring: { curiosity: 96, credibility: 100, specificity: 92, thumbnailComplementarity: 90 }
-        },
-        packagingScore: { overall: 92 },
-        thumbnail: { concept: { score: 96 } },
-        sources: [],
-        strategy: flagshipStrategy,
-        description: 'Her phone buzzed from inside the locked bedroom. Original Dark Stickman psychological horror short.'
-      });
-
-      const production = Object.create(ProductionManagementAgent.prototype);
-      const script = {
-        hook: { text: 'Her phone buzzed from inside the locked bedroom.' },
-        mainContent: {
-          sections: [1,2,3,4].map(number => ({
-            title: `Beat ${number}`,
-            content: [`The threat moves closer in beat ${number} without revealing the ending too early.`],
-            duration: 7,
-            visualQuery: `dark stickman apartment horror visual beat ${number}`,
-            visualRequiredAny: ['stickman','phone'],
-            visualForbiddenAny: ['bright','comedy','gore']
-          }))
-        }
-      };
-      const scenes = production.createHorrorStickmanScenePlan(script, flagshipStrategy, 32);
-      if (
-        scenes.length !== 4 ||
-        scenes.some(scene => !/vertical 9:16/i.test(scene.prompt) || !/same recurring adult stickman/i.test(scene.prompt))
-      ) {
-        throw new Error('Horror production scene plan lost the vertical Dark Stickman consistency contract');
-      }
-
-      const generator = Object.create(AIVideoGenerator.prototype);
-      const enhanced = generator.enhanceVisualPrompt('stickman beside a locked door', 'dark stickman psychological horror');
-      if (!/vertical 9:16/i.test(enhanced) || !/no gore/i.test(enhanced) || !/dark stickman/i.test(enhanced)) {
-        throw new Error('Synthetic image prompt lost Horror Stickman vertical safety anchors');
-      }
-
-      const operatorSource = (await fs.readFile(require.resolve('./utils/operator-service'), 'utf8'));
-      if (
-        !/short:\s*\[90, 140\]/.test(operatorSource) ||
-        !/short:\s*\[20, 45\]/.test(operatorSource) ||
-        !/duplicate_premise/.test(operatorSource) ||
-        !/FROM generation_jobs[\s\S]*status = 'completed'/.test(operatorSource) ||
-        !/horror_brand_style/.test(operatorSource)
-      ) {
-        throw new Error('Operator QA no longer enforces Horror Shorts word/runtime/originality/brand gates');
-      }
-
-      const mainSource = YouTubeAutomationAgent.prototype.generateContent.toString();
-      if (!/requestedLengthKey = 'short'/.test(mainSource) || !/generated\.fictional = true/.test(mainSource)) {
-        throw new Error('Canonical orchestrator can drift back to non-Short or factual generation');
-      }
-    } finally {
-      if (previousAutonomousMode === undefined) delete process.env.AUTONOMOUS_MODE;
-      else process.env.AUTONOMOUS_MODE = previousAutonomousMode;
-    }
-
-    this.logger.info('Horror Stickman orchestration contract test completed successfully');
   }
 
   async testSafeProviderReadinessDefaults() {
@@ -1848,14 +819,14 @@ class SystemTest {
       throw new Error('Environment example no longer boots with autonomous upload disabled');
     }
 
-    const channelIdentity = require('./config/channel-identity.json');
+    const channelIdentity = require('./utils/channel-identity');
     if (
-      Number(channelIdentity.publishingCadence?.shortsPerDay?.min) !== 2 ||
+      Number(channelIdentity.publishingCadence?.shortsPerDay?.min) !== 1 ||
       Number(channelIdentity.publishingCadence?.shortsPerDay?.target) !== 3 ||
       Number(channelIdentity.publishingCadence?.shortsPerDay?.max) !== 4 ||
       Number(channelIdentity.publishingCadence?.shortsPerDay?.scaleCeiling) !== 20
     ) {
-      throw new Error('Canonical Horror Stickman cadence is not locked to the 2-4/day launch range with target 3/day');
+      throw new Error('The Dark History cadence is not locked to the 1-4/day range with target 3/day');
     }
 
     const runtimeVerifySource = await fs.readFile(path.join(__dirname, 'deploy', 'oracle-vm', 'verify-runtime.sh'), 'utf8');
@@ -1865,15 +836,13 @@ class SystemTest {
       !/expectedAgents/.test(runtimeVerifySource) ||
       /YOUTUBE_UPLOAD_ENABLED=true/.test(runtimeVerifySource)
     ) {
-      throw new Error('Oracle runtime acceptance does not prove the safe seven-agent deployment state');
+      throw new Error('Oracle runtime acceptance does not prove the safe two-agent deployment state');
     }
 
     const autonomousVerifySource = await fs.readFile(path.join(__dirname, 'deploy', 'oracle-vm', 'verify-autonomous-runtime.sh'), 'utf8');
     const autonomousActivateSource = await fs.readFile(path.join(__dirname, 'deploy', 'oracle-vm', 'activate-autonomous.sh'), 'utf8');
     const installSource = await fs.readFile(path.join(__dirname, 'deploy', 'oracle-vm', 'install.sh'), 'utf8');
-    const schedulerSource = await fs.readFile(path.join(__dirname, 'schedules', 'daily-automation.js'), 'utf8');
     const databaseSource = await fs.readFile(path.join(__dirname, 'database', 'db.js'), 'utf8');
-    const niche = require('./config/horror-stickman-niche.json');
 
     if (
       !/AUTONOMOUS_MODE=true/.test(autonomousVerifySource) ||
@@ -1899,38 +868,9 @@ class SystemTest {
     if (!/activate-autonomous\.sh/.test(installSource)) {
       throw new Error('Oracle installer does not activate autonomous production after safe acceptance');
     }
-    if (!/cron\.schedule\('0 \*\/2 \* \* \*'/.test(schedulerSource)) {
-      throw new Error('Generation cadence is not checked frequently enough to sustain the Horror Stickman 4/day pacing contract');
-    }
     if (!/\['approval_required', 'false'/.test(databaseSource)) {
       throw new Error('New databases still default to human approval');
     }
-    if (
-      Number(niche.hardGates?.nicheFitMin) < 9 ||
-      Number(niche.hardGates?.visualStrengthMin) < 8 ||
-      Number(niche.hardGates?.curiosityGapMin) < 9 ||
-      Number(niche.hardGates?.retentionPotentialMin) < 9 ||
-      Number(niche.hardGates?.originalityMin) < 9 ||
-      Number(niche.hardGates?.brandFitMin) < 9 ||
-      Number(niche.hardGates?.minVisualStates) < 4 ||
-      Number(niche.hardGates?.maxVisualStates) > 7 ||
-      Number(niche.hardGates?.minEscalationSteps) < 2 ||
-      !Array.isArray(niche.brandSignature?.storyEngines) || niche.brandSignature.storyEngines.length < 8 ||
-      niche.autonomousEditorialPolicy?.humanReviewRequired !== false
-    ) {
-      throw new Error('Horror Stickman hook/originality/brand/retention gates were weakened');
-    }
-
-    const packageJson = require('./package.json');
-    if (packageJson.scripts['readiness:providers'] !== 'node scripts/provider-readiness-report.js') {
-      throw new Error('Safe provider readiness command is missing');
-    }
-
-    const reportSource = await fs.readFile(path.join(__dirname, 'scripts', 'provider-readiness-report.js'), 'utf8');
-    if (/apiKey\s*:\s*raw|client_secret\s*:\s*raw|tokens\.youtube\s*[,}]/.test(reportSource)) {
-      throw new Error('Provider readiness report risks exposing raw credential values');
-    }
-
     this.logger.info('Safe provider readiness defaults test completed successfully');
   }
 
@@ -1959,30 +899,6 @@ class SystemTest {
     }
 
     this.logger.info('Live provider smoke CLI test completed successfully');
-  }
-
-  async testCurrentGeminiProviderDefaults() {
-    const fs = require('fs').promises;
-    const path = require('path');
-
-    const generatorSource = await fs.readFile(path.join(__dirname, 'utils', 'ai-video-generator.js'), 'utf8');
-    const providerSource = await fs.readFile(path.join(__dirname, 'utils', 'video-providers.js'), 'utf8');
-    const envExample = await fs.readFile(path.join(__dirname, '.env.example'), 'utf8');
-
-    if (!/gemini-3\.8-flash-tts/.test(generatorSource) || /gemini-3\.1-flash-tts-preview/.test(generatorSource)) {
-      throw new Error('Gemini narration default is still pinned to the legacy preview TTS model');
-    }
-    if (!/gemini-omni-1\.1-flash/.test(providerSource) || /gemini-omni-flash-preview/.test(providerSource)) {
-      throw new Error('Gemini video default is still pinned to the legacy Omni preview model');
-    }
-    if (
-      !/GEMINI_TTS_MODEL=gemini-3\.8-flash-tts/.test(envExample) ||
-      !/GEMINI_VIDEO_MODEL=gemini-omni-1\.1-flash/.test(envExample)
-    ) {
-      throw new Error('Environment guidance does not match current Gemini provider defaults');
-    }
-
-    this.logger.info('Current Gemini provider defaults test completed successfully');
   }
 
   async testGeminiReadinessThinkingBudget() {
@@ -2377,7 +1293,6 @@ class SystemTest {
   }
   async testOpenIssueRegressions() {
     const { ModernAuth } = require('./modern-auth');
-    const { YouTubeAutomationAgent } = require('./index');
 
     const auth = new ModernAuth();
     const fixedRedirect = auth.resolveRedirect({
@@ -2387,310 +1302,7 @@ class SystemTest {
       throw new Error('OAuth did not use a desktop-app loopback redirect with a local dynamic port');
     }
 
-    const pipeline = new YouTubeAutomationAgent();
-    pipeline.db = {
-      getChannelProfile: async () => ({}),
-      saveProductionData: async data => data.id,
-      saveProductionSnapshot: async () => {},
-      getSetting: async () => 'true',
-      saveContentReview: async () => {},
-      updateProductionStatus: async () => {}
-    };
-    pipeline.provenance = { initialize: async () => ({ sources: [], claims: [], status: 'not_required' }) };
-    pipeline.operator = {
-      runQualityChecks: async () => ({ passed: true, score: 100, checks: [], blockingFailures: [] }),
-      notify: async () => {}
-    };
-    pipeline.preparePackagingExperiment = async () => null;
-    pipeline.agents = {
-      strategy: { generateContentStrategy: async () => ({
-        topic: 'Null context',
-        contentType: 'Explainer',
-        angle: 'Original angle',
-        researchSources: [{
-          url: 'https://example.test/null-context',
-          title: 'Null-context regression evidence',
-          status: 'verified'
-        }],
-        researchContext: [{
-          url: 'https://example.test/null-context',
-          excerpt: 'A regression fixture proving that a null optional strategy context does not break the canonical pipeline.'
-        }]
-      }) },
-      scriptWriter: { generateScript: async strategy => ({
-        title: strategy.topic,
-        hook: { text: 'The empty room answered before she even knocked.' },
-        fullScript: 'Complete Horror Shorts regression fixture.',
-        mainContent: {
-          sections: [
-            {
-              title: 'Ordinary setup',
-              content: ['She was alone in the apartment when a quiet knock came from the room she had locked before leaving for work.'],
-              duration: 7
-            },
-            {
-              title: 'First escalation',
-              content: ['She stepped closer, and the knocking copied her footsteps exactly, stopping each time she stopped in the dark hallway.'],
-              duration: 7
-            },
-            {
-              title: 'Second escalation',
-              content: ['Her phone lit up with a message from her own number telling her not to touch the bedroom door.'],
-              duration: 7
-            },
-            {
-              title: 'Twist',
-              content: ['Then the handle turned from her side of the door, while the knocking continued softly from directly behind her.'],
-              duration: 7
-            }
-          ]
-        },
-        callToAction: { subscribe: '' },
-        claims: [],
-        metadata: { strategy, fictional: true, spokenWordCount: 104 }
-      }) },
-      thumbnailDesigner: { generateThumbnail: async () => ({ path: 'thumbnail.png' }) },
-      seoOptimizer: { optimize: async script => ({ title: script.title, description: 'Description', tags: ['test'] }) },
-      production: { processContent: async input => ({
-        id: 'null-context-production',
-        status: 'ready',
-        ...input,
-        assets: {
-          video: {
-            scenePlan: [{
-              index: 0,
-              label: 'Regression section',
-              narration: 'A null optional strategy context must not interrupt a valid generation handoff.'
-            }],
-            simulated: false
-          },
-          audio: { path: 'narration.mp3', simulated: false },
-          finalVideo: { path: 'final.mp4', simulated: false },
-          thumbnail: { path: 'thumbnail.png' }
-        },
-        timeline: {},
-        scheduledPublishTime: new Date(Date.now() + 86400000).toISOString(),
-        priority: 50
-      }) },
-      publishing: { scheduleContent: async () => null }
-    };
-    const generated = await pipeline.generateContent(null, null, 'short', { strategyContext: null });
-    if (generated.contentId !== 'null-context-production') {
-      throw new Error('A null manual strategy context still prevented generation');
-    }
-
-    // Autonomous mode with approval required: passing every gate means "ready for review",
-    // never "rejected". Only a real gate failure is an autonomous rejection.
-    const savedControl = {
-      AUTONOMOUS_MODE: process.env.AUTONOMOUS_MODE,
-      APPROVAL_REQUIRED: process.env.APPROVAL_REQUIRED
-    };
-    const notifications = [];
-    pipeline.operator.notify = async notification => { notifications.push(notification.type); };
-    try {
-      process.env.AUTONOMOUS_MODE = 'true';
-      process.env.APPROVAL_REQUIRED = 'true';
-
-      const awaitingApproval = await pipeline.generateContent(null, null, 'short', { strategyContext: null });
-      if (awaitingApproval.reviewStatus !== 'needs_review') {
-        throw new Error(`A gate-passing production awaiting approval ended as ${awaitingApproval.reviewStatus}`);
-      }
-      if (notifications.includes('content_rejected') || !notifications.includes('review_required')) {
-        throw new Error(`A gate-passing production awaiting approval sent the wrong notification: ${notifications.join(', ')}`);
-      }
-
-      notifications.length = 0;
-      pipeline.operator.runQualityChecks = async () => ({
-        passed: false, score: 40, checks: [], blockingFailures: ['narration']
-      });
-      let rejection = null;
-      try {
-        await pipeline.generateContent(null, null, 'short', { strategyContext: null });
-      } catch (error) {
-        rejection = error;
-      }
-      if (!rejection || rejection.code !== 'AUTONOMOUS_QUALITY_REJECTED') {
-        throw new Error('A production that failed a gate was not rejected in autonomous mode');
-      }
-      if (!notifications.includes('content_rejected')) {
-        throw new Error('A real autonomous rejection did not send the rejection notification');
-      }
-    } finally {
-      for (const [name, value] of Object.entries(savedControl)) {
-        if (value === undefined) delete process.env[name];
-        else process.env[name] = value;
-      }
-    }
-
     this.logger.info('Open issue regression test completed successfully');
-  }
-
-  async testResumableGenerationCheckpoints() {
-    const fs = require('fs').promises;
-    const os = require('os');
-    const { YouTubeAutomationAgent } = require('./index');
-    const { GenerationRecoveryService } = require('./utils/generation-recovery-service');
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'yaa-recovery-'));
-    const db = new Database();
-    db.dbPath = path.join(directory, 'recovery.db');
-    await db.initialize();
-
-    const thumbnailPath = path.join(directory, 'thumbnail.jpg');
-    const videoPath = path.join(directory, 'video.mp4');
-    await fs.writeFile(thumbnailPath, Buffer.from('thumbnail'));
-    await fs.writeFile(videoPath, Buffer.from('video'));
-    const strategy = {
-      topic: 'Checkpointed automation',
-      contentType: 'Tutorial',
-      angle: 'Explain how checkpointed automation preserves work across restarts.',
-      requestedStyle: 'tutorial',
-      requestedLengthKey: 'short',
-      researchSources: [{
-        url: 'https://example.test/checkpoint-evidence',
-        title: 'Checkpoint evidence',
-        status: 'verified'
-      }],
-      researchContext: [{
-        url: 'https://example.test/checkpoint-evidence',
-        excerpt: 'Checkpointed automation preserves completed stages across controlled restarts.'
-      }]
-    };
-    const script = {
-      title: 'Checkpointed automation',
-      fullScript: 'A complete script that can be reused after an interrupted generation run.',
-      mainContent: {
-        sections: [{
-          title: 'Reusable stage',
-          content: ['Checkpointed automation preserves completed work across a controlled restart.'],
-          duration: 60
-        }]
-      },
-      claims: [],
-      metadata: { strategy }
-    };
-    let strategyCalls = 0;
-    let scriptCalls = 0;
-    let productionCalls = 0;
-
-    try {
-      const agent = new YouTubeAutomationAgent();
-      agent.db = db;
-      agent.recovery = new GenerationRecoveryService(db, {
-        logger: agent.logger,
-        baseDelayMs: 0,
-        updateJobStage: (...args) => agent.updateJobStage(...args)
-      });
-      agent.readiness = { assertReady: async () => true };
-      agent.operator = {
-        runQualityChecks: async () => ({ passed: true, score: 100, checks: [{ passed: true }], blockingFailures: [] }),
-        notify: async () => null
-      };
-      agent.agents = {
-        strategy: { generateContentStrategy: async () => { strategyCalls++; return strategy; } },
-        scriptWriter: { generateScript: async () => { scriptCalls++; return script; } },
-        thumbnailDesigner: { generateThumbnail: async () => ({ path: thumbnailPath, concept: {} }) },
-        seoOptimizer: { optimize: async () => ({ title: script.title, description: 'A complete description.', tags: ['automation'] }) },
-        production: {
-          processContent: async input => {
-            productionCalls++;
-            return {
-              id: `recovery-production-${Date.now()}`,
-              status: 'ready',
-              ...input,
-              assets: {
-                video: {
-                  scenePlan: [{
-                    index: 0,
-                    label: 'Reusable stage',
-                    narration: 'Checkpointed automation preserves completed work across a controlled restart.',
-                    assetPath: videoPath,
-                    simulated: false
-                  }],
-                  simulated: false
-                },
-                audio: { path: videoPath, simulated: false },
-                finalVideo: { path: videoPath, simulated: false },
-                thumbnail: { path: thumbnailPath }
-              },
-              timeline: {},
-              scheduledPublishTime: new Date(Date.now() + 86400000).toISOString(),
-              priority: 50,
-              estimatedDuration: '2:00'
-            };
-          }
-        },
-        publishing: { scheduleContent: async () => null }
-      };
-
-      const job = await db.createGenerationJob({
-        topic: strategy.topic,
-        style: 'tutorial',
-        length: 'short',
-        source: 'manual',
-        strategyContext: { objective: 'Test recovery' }
-      });
-      await db.saveGenerationCheckpoint(job.id, 'strategy', {
-        status: 'completed', artifact: strategy, completedAt: new Date().toISOString()
-      });
-      await db.saveGenerationCheckpoint(job.id, 'script', {
-        status: 'completed', artifact: script, completedAt: new Date().toISOString()
-      });
-      await db.updateGenerationJob(job.id, { status: 'running', stage: 'thumbnail', progress: 40 });
-      await db.markInterruptedJobs();
-      const interrupted = await db.getGenerationJob(job.id);
-      if (interrupted.status !== 'interrupted' || interrupted.stage !== 'thumbnail') {
-        throw new Error('Restart recovery did not preserve the interrupted stage');
-      }
-
-      const resumed = await agent.resumeGenerationJob(job.id);
-      if (resumed.details?.resumeFrom !== 'thumbnail') {
-        throw new Error('Resume did not select the first incomplete stage');
-      }
-      await agent.waitForGenerationJob(job.id);
-      const completed = await db.getGenerationJob(job.id);
-      const checkpoints = await db.listGenerationCheckpoints(job.id);
-      if (
-        completed.status !== 'completed' ||
-        checkpoints.filter(item => item.status === 'completed').length !== 6 ||
-        strategyCalls !== 0 || scriptCalls !== 0 || productionCalls !== 1 ||
-        !completed.details.reusedStages.includes('strategy') || !completed.details.reusedStages.includes('script')
-      ) {
-        throw new Error('Generation did not resume from verified checkpoints');
-      }
-
-      let transientAttempts = 0;
-      const transientJob = await db.createGenerationJob({ topic: 'Transient retry' });
-      const recovered = await agent.recovery.run(transientJob.id, 'strategy', 10, async () => {
-        transientAttempts++;
-        if (transientAttempts === 1) {
-          const error = new Error('Temporary provider failure');
-          error.status = 503;
-          throw error;
-        }
-        return { topic: 'Recovered strategy' };
-      });
-      const transientCheckpoint = await db.getGenerationCheckpoint(transientJob.id, 'strategy');
-      if (recovered.topic !== 'Recovered strategy' || transientAttempts !== 2 || transientCheckpoint.attempt_count !== 2) {
-        throw new Error('A retry-safe transient stage failure was not recovered with bounded attempts');
-      }
-
-      const invalidJob = await db.createGenerationJob({ topic: 'Invalid dependency' });
-      await db.saveGenerationCheckpoint(invalidJob.id, 'strategy', {
-        status: 'completed', artifact: {}, completedAt: new Date().toISOString()
-      });
-      await db.saveGenerationCheckpoint(invalidJob.id, 'script', {
-        status: 'completed', artifact: script, completedAt: new Date().toISOString()
-      });
-      await agent.recovery.run(invalidJob.id, 'strategy', 10, async () => ({ topic: 'Rebuilt dependency' }));
-      if (await db.getGenerationCheckpoint(invalidJob.id, 'script')) {
-        throw new Error('A stale downstream checkpoint survived invalid upstream artifact recovery');
-      }
-    } finally {
-      await db.close();
-      await fs.rm(directory, { recursive: true, force: true });
-    }
-
-    this.logger.info('Resumable generation checkpoints test completed successfully');
   }
 
   async testAPIValidationAndSecurity() {
@@ -2798,7 +1410,6 @@ class SystemTest {
   async testUploadAuthorizationPolicy() {
     const { resolveControlState, publicationState, recordUploadAuthorization, PUBLICATION_STATES } = require('./utils/publishing-policy');
     const { YouTubeAutomationAgent } = require('./index');
-    const { AutonomousChannelOperator } = require('./utils/autonomous-channel-operator');
     const keys = ['AUTONOMOUS_MODE', 'YOUTUBE_UPLOAD_ENABLED', 'APPROVAL_REQUIRED', 'AUTOMATION_PAUSED'];
     const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
     const settings = new Map();
@@ -2868,23 +1479,6 @@ class SystemTest {
       if (pausedCode !== 'AUTOMATION_PAUSED') throw new Error('A paused automated job did not stop at the stage checkpoint');
       await agent.assertJobMayContinue('manual', 'production');
 
-      // The operator stops before new items and ends the run as resumable.
-      const runs = new Map([['run-1', { id: 'run-1', status: 'running', plan: [], generatedJobs: [] }]]);
-      const operator = new AutonomousChannelOperator({
-        getOperatorRun: async id => runs.get(id),
-        updateOperatorRun: async (id, changes) => { runs.set(id, { ...runs.get(id), ...changes }); return runs.get(id); },
-        createContentIdea: async () => { throw new Error('No new item may start while paused'); }
-      }, {
-        researchAndPlan: async () => ({ research: {}, plan: [{ topic: 'A door that locks from the wrong side', format: 'story' }] }),
-        startGenerationJob: async () => { throw new Error('No job may start while paused'); },
-        isAutomationPaused: async () => true,
-        requiresHumanApproval: async () => false
-      });
-      await operator.execute('run-1', { status: 'active' });
-      const pausedRun = runs.get('run-1');
-      if (pausedRun.status !== 'interrupted' || pausedRun.stage !== 'paused') {
-        throw new Error('Paused operator run did not end as a resumable interrupted run');
-      }
     } finally {
       for (const key of keys) {
         if (saved[key] === undefined) delete process.env[key];
@@ -2894,117 +1488,12 @@ class SystemTest {
     this.logger.info('Upload authorization policy test completed successfully');
   }
 
-  async testHorrorLearningLoop() {
-    const { ChannelLearningEngine } = require('./utils/channel-learning-engine');
-    const { ContentStrategyAgent } = require('./agents/content-strategy-agent');
-    const engine = new ChannelLearningEngine({});
-
-    const attributes = engine.extractAttributes(
-      { videoDetails: { title: 'Her phone buzzed from inside the locked bedroom', duration: 'PT41S' } },
-      {
-        contentFormat: 'short',
-        strategy: { topic: 'The Text From Upstairs', storyEngine: 'impossible-message' },
-        script: { hook: 'Her phone buzzed from inside the locked bedroom.' }
-      }
-    );
-    if (attributes.storyEngine !== 'impossible_message' || attributes.hookStyle !== 'punchy' || attributes.runtimeBand !== '38_45s') {
-      throw new Error(`Horror Shorts attributes were not captured for learning: ${JSON.stringify(attributes)}`);
-    }
-
-    const snapshot = (engine, retention, extra = {}) => ({
-      contentAttributes: { surface: 'shorts', format: 'shorts', length: 'short', storyEngine: engine, ...extra },
-      metrics: { retention }
-    });
-    const recommendations = engine.buildDimensionRecommendations([
-      snapshot('wrong_reflection', 92), snapshot('wrong_reflection', 88),
-      snapshot('impossible_sound', 61), snapshot('impossible_sound', 66)
-    ]);
-    const engineLearning = recommendations.find(item => item.proposedChange?.dimension === 'storyEngine');
-    if (!engineLearning || engineLearning.proposedChange.prefer !== 'wrong_reflection' ||
-      engineLearning.proposedChange.deprioritize !== 'impossible_sound' || engineLearning.proposedChange.target !== 'future_plans') {
-      throw new Error('A real story-engine retention gap did not produce a planning recommendation');
-    }
-    if (!engine.canAutoApproveRecommendation(engineLearning)) {
-      throw new Error('A two-sample-per-group story-engine learning was not eligible for autonomous approval');
-    }
-    const noise = engine.buildDimensionRecommendations([
-      snapshot('wrong_reflection', 80), snapshot('wrong_reflection', 79),
-      snapshot('impossible_sound', 77), snapshot('impossible_sound', 76)
-    ]);
-    if (noise.some(item => item.proposedChange?.dimension === 'storyEngine')) {
-      throw new Error('A small retention difference was treated as a learning');
-    }
-
-    const strategy = Object.create(ContentStrategyAgent.prototype);
-    const up = strategy.learnedPlanAdjustment({ storyEngine: 'wrong-reflection' }, [engineLearning]);
-    const down = strategy.learnedPlanAdjustment({ storyEngine: 'impossible-sound' }, [engineLearning]);
-    const neutral = strategy.learnedPlanAdjustment({ storyEngine: 'repetition-loop' }, [engineLearning]);
-    if (!(up.delta > 0) || !(down.delta < 0) || neutral.delta !== 0 || Math.abs(up.delta) > 10) {
-      throw new Error('Approved learnings did not apply a bounded preference to plan ranking');
-    }
-    const ignored = strategy.learnedPlanAdjustment({ storyEngine: 'wrong-reflection' }, [{
-      ...engineLearning, proposedChange: { ...engineLearning.proposedChange, target: 'future_scripts' }
-    }]);
-    if (ignored.delta !== 0) throw new Error('A script-level learning changed topic planning');
-
-    this.logger.info('Horror learning loop test completed successfully');
-  }
-
-  async testFinalVideoTechnicalGates() {
-    const os = require('os');
-    const fs = require('fs').promises;
-    const { runFFmpeg, probeMediaStreams, detectBlackSegments, getAudioLevels } = require('./utils/ffmpeg');
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'video-gates-'));
-    try {
-      const landscape = path.join(directory, 'landscape.mp4');
-      await runFFmpeg(['-y', '-f', 'lavfi', '-i', 'color=c=#1c2233:s=640x360:r=25:d=2', '-f', 'lavfi', '-i', 'anullsrc=r=24000:cl=mono',
-        '-t', '2', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', landscape]);
-      const streams = await probeMediaStreams(landscape);
-      if (streams.width !== 640 || streams.height !== 360 || streams.fps !== 25 || !streams.hasAudio) {
-        throw new Error(`Stream probe misread the video: ${JSON.stringify(streams)}`);
-      }
-
-      const black = path.join(directory, 'black.mp4');
-      await runFFmpeg(['-y', '-f', 'lavfi', '-i', 'color=c=black:s=1080x1920:r=30:d=3', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', black]);
-      const segments = await detectBlackSegments(black);
-      if (!segments.length || segments[0].duration < 2.5) throw new Error('A fully black video was not detected');
-
-      const dark = path.join(directory, 'dark.mp4');
-      await runFFmpeg(['-y', '-f', 'lavfi', '-i', 'color=c=#0b0e16:s=1080x1920:r=30:d=3', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', dark]);
-      if ((await detectBlackSegments(dark)).length) throw new Error('The deliberately dark Dark Stickman palette was flagged as black video');
-
-      const silent = path.join(directory, 'silent.mp3');
-      await runFFmpeg(['-y', '-f', 'lavfi', '-i', 'anullsrc=r=24000:cl=mono', '-t', '2', '-acodec', 'libmp3lame', silent]);
-      const levels = await getAudioLevels(silent);
-      if (levels.meanVolume > -80) throw new Error('Silent narration was not measured as silent');
-
-      const { AIVideoGenerator } = require('./utils/ai-video-generator');
-      const generator = Object.create(AIVideoGenerator.prototype);
-      const beats = ['a.png', 'b.png', 'c.png', 'd.png'].map((file, index) => ({ path: file, duration: [8, 4, 4, 2][index] }));
-      const timeline = generator.buildImageTimeline(beats, beats.map(beat => beat.path), 36);
-      const total = timeline.reduce((sum, item) => sum + item.duration, 0);
-      if (Math.abs(total - 36) > 0.01 || Math.abs(timeline[0].duration - 16) > 0.01 || Math.abs(timeline[3].duration - 4) > 0.01) {
-        throw new Error('Still timeline did not follow narration-proportional beat durations');
-      }
-      if (timeline[0].motion !== 'push-in-fast' || timeline[3].motion !== 'creep-in' || timeline.some(item => !generator.stillMotionFilter(item.motion, item.duration))) {
-        throw new Error('Still timeline beats lost their camera motion');
-      }
-      if (generator.buildImageTimeline(beats, ['a.png'], 36) !== null) {
-        throw new Error('A timeline with missing images was not rejected');
-      }
-    } finally {
-      await fs.rm(directory, { recursive: true, force: true });
-    }
-    this.logger.info('Final video technical gates test completed successfully');
-  }
-
   async testFreeLocalVoiceFallback() {
     const os = require('os');
     const fs = require('fs').promises;
-    const { AIVideoGenerator } = require('./utils/ai-video-generator');
+    const { LocalTts } = require('./utils/local-tts');
     const { getMediaDuration } = require('./utils/ffmpeg');
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'local-voice-'));
-    const previous = { cmd: process.env.LOCAL_TTS_COMMAND, label: process.env.LOCAL_TTS_LABEL, lock: process.env.NARRATOR_LOCK };
     try {
       // Stand-in local engine with Piper-style flags; writes a WAV sized to the text.
       const fake = path.join(directory, 'fake-tts.js');
@@ -3017,52 +1506,26 @@ class SystemTest {
         runFFmpeg(['-y', '-f', 'lavfi', '-i', 'sine=frequency=160:sample_rate=22050', '-t', seconds, args[args.indexOf('-f') + 1]])
           .catch(error => { console.error(error.message); process.exit(1); });
       `);
-      const generator = new AIVideoGenerator({});
-      generator.gemini = {};
-      generator.generateGeminiTTS = async () => {
-        const error = new Error('RESOURCE_EXHAUSTED: free tier quota');
-        error.status = 429;
-        throw error;
-      };
+      const tts = new LocalTts();
       const text = 'The knocking answered every step he took. '.repeat(14);
       const output = path.join(directory, 'narration.mp3');
 
-      process.env.LOCAL_TTS_COMMAND = `${process.execPath} ${fake} --input-file {text} -f {wav}`;
-      process.env.LOCAL_TTS_LABEL = 'piper:test-voice';
+      // A working local command becomes a real mp3 of the right length.
+      await tts.generateLocalCommandTTS(text, output, `${process.execPath} ${fake} --input-file {text} -f {wav}`);
+      if (!await tts.isUsableAudioFile(output) || !((await getMediaDuration(output)) > 20)) throw new Error('The local voice did not produce a usable narration');
+      if (await tts.isUsableAudioFile(path.join(directory, 'missing.mp3')) || await tts.isUsableAudioFile('x.info')) throw new Error('A missing or .info file was accepted as narration');
 
-      // Default (narrator lock on): an exhausted primary voice must NOT hand over to another voice.
-      delete process.env.NARRATOR_LOCK;
-      let lockedFailedClosed = false;
-      try { await generator.generateTTSAudio(text, output); } catch (_error) {
-        lockedFailedClosed = generator.lastNarrationResult.status === 'failed' && generator.lastNarrationResult.provider === 'gemini';
-      }
-      if (!lockedFailedClosed) throw new Error(`Narrator lock let a fallback voice narrate: ${JSON.stringify(generator.lastNarrationResult)}`);
-
-      // Explicit opt-out restores the free local voice chain.
-      process.env.NARRATOR_LOCK = 'false';
-      await generator.generateTTSAudio(text, output);
-      const result = generator.lastNarrationResult;
-      if (result.status !== 'ready' || result.provider !== 'local-tts' || result.fallbackFrom?.[0] !== 'gemini' ||
-        result.cost.invoiceRequired !== false || !((await getMediaDuration(output)) > 20)) {
-        throw new Error(`Exhausted Gemini narration did not fall back to the free local voice: ${JSON.stringify(result)}`);
-      }
-
-      delete process.env.LOCAL_TTS_COMMAND;
-      let failedClosed = false;
-      try { await generator.generateTTSAudio(text, output); } catch (_error) { failedClosed = generator.lastNarrationResult.status === 'failed'; }
-      if (!failedClosed) throw new Error('Narration without any working voice did not fail closed');
-
-      process.env.LOCAL_TTS_COMMAND = `${process.execPath} ${fake}`;
+      // No placeholders, no voice: the command is refused, never guessed.
       let placeholderRejected = false;
-      try { await generator.generateTTSAudio(text, output); } catch (error) { placeholderRejected = /placeholders/.test(error.message); }
+      try { await tts.generateLocalCommandTTS(text, output, `${process.execPath} ${fake}`); } catch (error) { placeholderRejected = /placeholders/.test(error.message); }
       if (!placeholderRejected) throw new Error('A LOCAL_TTS_COMMAND without {text}/{wav} placeholders was accepted');
+      let failedClosed = false;
+      try { await tts.generateLocalCommandTTS(text, output, `${process.execPath} /nonexistent-tts.js --input-file {text} -f {wav}`); } catch (_error) { failedClosed = true; }
+      if (!failedClosed) throw new Error('A failing local voice command did not fail closed');
     } finally {
-      if (previous.cmd === undefined) delete process.env.LOCAL_TTS_COMMAND; else process.env.LOCAL_TTS_COMMAND = previous.cmd;
-      if (previous.label === undefined) delete process.env.LOCAL_TTS_LABEL; else process.env.LOCAL_TTS_LABEL = previous.label;
-      if (previous.lock === undefined) delete process.env.NARRATOR_LOCK; else process.env.NARRATOR_LOCK = previous.lock;
       await fs.rm(directory, { recursive: true, force: true });
     }
-    this.logger.info('Free local voice fallback test completed successfully');
+    this.logger.info('Local voice test completed successfully');
   }
 
   async testPublishingSafety() {
@@ -3800,173 +2263,6 @@ class SystemTest {
     this.logger.info('Free-only text provider selection test completed successfully');
   }
 
-  async testEvidenceAwareVisualHandoff() {
-    const ScriptWriterAgent = require('./agents/script-writer-agent').ScriptWriterAgent;
-
-    const writer = Object.create(ScriptWriterAgent.prototype);
-    const sections = writer.normalizeAISections([{
-      title: 'Pressure chamber',
-      content: ['A large underground chamber slows floodwater before pumping.'],
-      duration: 60,
-      visualQuery: 'underground flood pressure chamber concrete pillars',
-      visualRequiredAny: ['underground', 'concrete', 'pillar'],
-      visualForbiddenAny: ['subway', 'train']
-    }], { topic: 'Flood defense system' });
-
-    if (sections[0].visualQuery !== 'underground flood pressure chamber concrete pillars') {
-      throw new Error('Script agent visualQuery was not preserved');
-    }
-  }
-
-  async testAgentCommunicationContracts() {
-    const { AgentContractService } = require('./utils/agent-contract-service');
-    const contracts = new AgentContractService();
-
-    contracts.validateAgentRegistry({
-      strategy: { generateContentStrategy() {} },
-      scriptWriter: { generateScript() {} },
-      thumbnailDesigner: { generateThumbnail() {} },
-      seoOptimizer: { optimize() {} },
-      production: { processContent() {} },
-      publishing: { scheduleContent() {} },
-      analytics: { getRecentAnalytics() {} }
-    });
-
-    const strategy = contracts.handoff('strategy', {
-      topic: 'A real engineering system',
-      contentType: 'Explainer',
-      angle: 'How the physical mechanism solves the constraint.',
-      researchSources: [{
-        url: 'https://example.test/source',
-        title: 'Source',
-        status: 'verified'
-      }],
-      researchContext: [{
-        url: 'https://example.test/source',
-        excerpt: 'Evidence'
-      }]
-    }, { productionMode: true });
-
-    const script = contracts.handoff('script', {
-      title: 'How the System Works',
-      hook: { text: 'A visible result hides a larger mechanism.' },
-      mainContent: {
-        sections: [{
-          title: 'The mechanism',
-          content: ['The mechanism redirects water through a concrete chamber.'],
-          duration: 60,
-          visualQuery: 'concrete water chamber infrastructure',
-          visualRequiredAny: ['concrete', 'water'],
-          visualForbiddenAny: ['subway']
-        }]
-      },
-      claims: [],
-      metadata: {
-        generationSource: 'ai',
-        strategy
-      }
-    }, { strategy });
-
-    contracts.handoff('thumbnail', {
-      path: 'data/assets/thumb.jpg',
-      fileSize: 1000
-    }, { strategy, script });
-
-    contracts.handoff('seo', {
-      title: 'How the System Works',
-      description: 'A detailed documentary description of the system.',
-      tags: ['engineering', 'infrastructure']
-    }, { strategy, script });
-
-    contracts.handoff('production', {
-      id: 'prod-contract-test',
-      strategy,
-      script,
-      assets: {
-        video: {
-          scenePlan: [{
-            index: 0,
-            label: 'The mechanism',
-            narration: 'The mechanism redirects water through a concrete chamber.',
-            assetPath: 'data/videos/scene.mp4',
-            simulated: false
-          }]
-        },
-        audio: { path: 'data/audio/narration.mp3', simulated: false },
-        finalVideo: { path: 'data/videos/final.mp4', simulated: false }
-      }
-    }, { strategy, script });
-
-    let missingResearchBlocked = false;
-    try {
-      contracts.handoff('strategy', {
-        topic: 'Unresearched story',
-        contentType: 'Explainer',
-        angle: 'An angle',
-        researchSources: [],
-        researchContext: []
-      }, { productionMode: true });
-    } catch (error) {
-      missingResearchBlocked = error.code === 'AGENT_CONTRACT_VIOLATION';
-    }
-    if (!missingResearchBlocked) throw new Error('Production strategy without research was not blocked');
-
-    let unverifiedResearchBlocked = false;
-    try {
-      contracts.handoff('strategy', {
-        topic: 'Story with an unverified trend lead',
-        contentType: 'Story',
-        angle: 'An angle',
-        researchSources: [{
-          url: 'https://example.test/trend-lead',
-          title: 'Unverified trend lead'
-        }],
-        researchContext: []
-      }, { productionMode: true });
-    } catch (error) {
-      unverifiedResearchBlocked = error.code === 'AGENT_CONTRACT_VIOLATION';
-    }
-    if (!unverifiedResearchBlocked) {
-      throw new Error('Production strategy accepted an unverified trend lead as research evidence');
-    }
-
-    let driftBlocked = false;
-    try {
-      contracts.handoff('production', {
-        id: 'prod-drift',
-        strategy: { ...strategy, topic: 'Different topic' },
-        script,
-        assets: {
-          video: { scenePlan: [{ index: 0, label: 'Scene', narration: 'Narration' }] },
-          audio: {},
-          finalVideo: {}
-        }
-      }, { strategy, script });
-    } catch (error) {
-      driftBlocked = error.code === 'AGENT_CONTRACT_VIOLATION';
-    }
-    if (!driftBlocked) throw new Error('Cross-agent topic drift was not blocked');
-
-    const { YouTubeAutomationAgent } = require('./index');
-    const validation = YouTubeAutomationAgent.prototype.validateGenerateRequestBody.call({}, {
-      topic: 'Research handoff test',
-      style: 'explainer',
-      length: 'medium',
-      strategyContext: {
-        angle: 'Test angle',
-        researchSources: [{
-          url: 'https://example.test/evidence',
-          title: 'Evidence title',
-          publisher: 'Evidence publisher',
-          sourceType: 'article'
-        }]
-      }
-    });
-    if (!validation.valid || validation.value.strategyContext.researchSources?.[0]?.url !== 'https://example.test/evidence') {
-      throw new Error('Generation request validation dropped the autonomous research-source handoff');
-    }
-  }
-
   async testPlaceholderSchedulingGuard() {
     const { PublishingSchedulingAgent } = require('./agents/publishing-scheduling-agent');
     const agent = new PublishingSchedulingAgent({
@@ -4052,584 +2348,6 @@ class SystemTest {
     }
 
     this.logger.info(`FFmpeg resolution test completed (binary: ${ffmpegPath}, available: ${available})`);
-  }
-
-  async testGeminiMediaProvider() {
-    const { AIVideoGenerator } = require('./utils/ai-video-generator');
-    const fs = require('fs').promises;
-    const os = require('os');
-    const sharp = require('sharp');
-
-    const envKeys = ['OPENAI_API_KEY', 'GEMINI_API_KEY', 'REPLICATE_API_KEY', 'ELEVENLABS_API_KEY'];
-    const savedEnv = {};
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'yaa-gemini-image-'));
-    for (const key of envKeys) {
-      savedEnv[key] = process.env[key];
-      delete process.env[key];
-    }
-
-    try {
-      const previousFreeOnly = process.env.FREE_MEDIA_ONLY;
-      process.env.FREE_MEDIA_ONLY = 'true';
-      const freeOnly = new AIVideoGenerator({
-        openai: { apiKey: 'paid-openai' }, elevenLabs: { apiKey: 'paid-eleven', voiceId: 'v' },
-        replicate: { apiKey: 'paid-replicate' }, gemini: { apiKey: 'free-gemini' }
-      });
-      if (previousFreeOnly === undefined) delete process.env.FREE_MEDIA_ONLY; else process.env.FREE_MEDIA_ONLY = previousFreeOnly;
-      if (freeOnly.openai || freeOnly.replicate || freeOnly.elevenLabsApiKey || !freeOnly.gemini) {
-        throw new Error('FREE_MEDIA_ONLY did not keep paid media providers out of narration, images and video');
-      }
-      const geminiOnly = new AIVideoGenerator({ gemini: { apiKey: 'test-key' } });
-      if (!geminiOnly.gemini) {
-        throw new Error('Gemini media service was not initialized from gemini credentials');
-      }
-      if (geminiOnly.openai) {
-        throw new Error('OpenAI client initialized without a key');
-      }
-
-      const thoughtImage = await sharp({
-        create: { width: 64, height: 64, channels: 3, background: '#ff0000' }
-      }).jpeg().toBuffer();
-      const finalImage = await sharp({
-        create: { width: 180, height: 320, channels: 3, background: '#0066ff' }
-      }).webp().toBuffer();
-      let imageRequest = null;
-      geminiOnly.gemini.models.generateContent = async request => {
-        imageRequest = request;
-        return {
-          candidates: [{
-            content: {
-              parts: [
-                { thought: true, inlineData: { mimeType: 'image/jpeg', data: thoughtImage.toString('base64') } },
-                { text: 'Rendering the final image.' },
-                { inlineData: { mimeType: 'image/webp', data: finalImage.toString('base64') } }
-              ]
-            }
-          }]
-        };
-      };
-
-      const outputPath = path.join(directory, 'gemini-output.png');
-      await geminiOnly.generateGeminiImage('Create a blue vertical Dark Stickman test image', outputPath);
-      const metadata = await sharp(outputPath).metadata();
-      if (metadata.format !== 'png' || metadata.width !== 180 || metadata.height !== 320) {
-        throw new Error('Gemini final image was not selected and normalized to the requested file format');
-      }
-      if (
-        imageRequest?.config?.responseModalities?.[0] !== 'IMAGE' ||
-        imageRequest?.config?.imageConfig?.aspectRatio !== '9:16'
-      ) {
-        throw new Error('Gemini image request did not require the vertical Shorts image response');
-      }
-
-      const none = new AIVideoGenerator({});
-      if (none.gemini || none.openai) {
-        throw new Error('External media services initialized without any credentials');
-      }
-      const localPath = path.join(directory, 'local-stickman.png');
-      await none.generateImage(
-        'minimal dark stickman psychological horror, figure beside a locked door holding a phone, vertical 9:16, no text, no gore',
-        localPath
-      );
-      const localMetadata = await sharp(localPath).metadata();
-      if (
-        localMetadata.width !== 1080 ||
-        localMetadata.height !== 1920 ||
-        none.lastImageResult?.provider !== 'local-stickman' ||
-        none.lastImageResult?.simulated === true
-      ) {
-        throw new Error('Built-in Dark Stickman renderer did not produce a real 1080x1920 production asset');
-      }
-    } finally {
-      for (const key of envKeys) {
-        if (savedEnv[key] === undefined) {
-          delete process.env[key];
-        } else {
-          process.env[key] = savedEnv[key];
-        }
-      }
-      await fs.rm(directory, { recursive: true, force: true }).catch(() => {});
-    }
-
-    this.logger.info('Gemini media provider selection test completed successfully');
-  }
-
-  async testSlideshowRenderer() {
-    const { AIVideoGenerator } = require('./utils/ai-video-generator');
-    const { ProductionManagementAgent } = require('./agents/production-management-agent');
-    const { checkFFmpeg } = require('./utils/ffmpeg');
-    const fs = require('fs').promises;
-    const os = require('os');
-    const { runFFmpeg, getMediaDuration } = require('./utils/ffmpeg');
-
-    if (!(await checkFFmpeg())) {
-      this.logger.warn('FFmpeg unavailable — skipping slideshow renderer test');
-      return;
-    }
-
-    const sharp = require('sharp');
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'yaa-slides-'));
-
-    try {
-      const stills = [];
-      for (let i = 0; i < 3; i++) {
-        const stillPath = path.join(dir, `slide_${i}.png`);
-        await sharp({
-          create: { width: 320, height: 180, channels: 3, background: { r: 60 * i, g: 80, b: 160 } }
-        }).png().toFile(stillPath);
-        stills.push(stillPath);
-      }
-
-      const generator = new AIVideoGenerator({});
-      if (generator.parseDurationSeconds('2:05') !== 125 || generator.parseDurationSeconds('1:02:03') !== 3723) {
-        throw new Error('Human-readable production durations are not converted to timeline seconds');
-      }
-
-      const embeddedAssets = await generator.filterImageAssets(stills);
-      if (embeddedAssets.length !== stills.length || embeddedAssets.some(asset => !asset.startsWith('data:image/png;base64,'))) {
-        throw new Error('Slideshow image assets were not embedded as browser-safe image data');
-      }
-      const { chromium } = require('playwright');
-      let browser = null;
-      try {
-        browser = await chromium.launch();
-      } catch (error) {
-        if (!/Executable doesn't exist|playwright install/i.test(error.message)) throw error;
-        this.logger.warn('Chromium is not installed — verified browser-safe image embedding without the live browser assertion');
-      }
-      if (browser) {
-        try {
-          const page = await browser.newPage();
-          await page.setContent(generator.createSlideshowHTML({ title: 'Image loading test' }, embeddedAssets));
-          const imageState = await page.$$eval('.background-image', images => images.map(image => ({
-            complete: image.complete,
-            width: image.naturalWidth,
-            height: image.naturalHeight
-          })));
-          if (!imageState.length || imageState.some(image => !image.complete || !image.width || !image.height)) {
-            throw new Error('Embedded slideshow images did not load in Chromium');
-          }
-        } finally {
-          await browser.close();
-        }
-      }
-
-      const videoPath = path.join(dir, 'out.mp4');
-      await generator.renderSlidesToVideo(stills, 6, videoPath);
-
-      const stats = await fs.stat(videoPath);
-      if (!stats.size) {
-        throw new Error('Rendered slideshow video is empty');
-      }
-
-      // Missing narration must fail closed unless the operator explicitly confirmed silence.
-      const finalPath = path.join(dir, 'final.mp4');
-      let missingNarrationBlocked = false;
-      try {
-        await generator.addAudioToVideo(videoPath, path.join(dir, 'missing.mp3'), finalPath);
-      } catch (error) {
-        missingNarrationBlocked = error.code === 'NARRATION_REQUIRED';
-      }
-      if (!missingNarrationBlocked) throw new Error('Missing narration silently produced a final video');
-      await generator.addAudioToVideo(videoPath, path.join(dir, 'missing.mp3'), finalPath, { allowSilent: true });
-      const finalStats = await fs.stat(finalPath);
-      if (!finalStats.size) {
-        throw new Error('Explicit intentional-silence assembly did not produce a video');
-      }
-
-      const shortLoopVideo = path.join(dir, 'short-loop-source.mp4');
-      await generator.renderSlidesToVideo([stills[0]], 1, shortLoopVideo);
-      const tonePath = path.join(dir, 'tone.wav');
-      await runFFmpeg([
-        '-y',
-        '-f', 'lavfi',
-        '-i', 'sine=frequency=440:duration=3',
-        '-c:a', 'pcm_s16le',
-        tonePath
-      ], { timeoutMs: 10000 });
-      const boundedMuxPath = path.join(dir, 'bounded-loop-mux.mp4');
-      await generator.addAudioToVideo(shortLoopVideo, tonePath, boundedMuxPath, {
-        loopVideo: true,
-        maxDurationSeconds: 3.25
-      });
-      const boundedDuration = await getMediaDuration(boundedMuxPath);
-      const boundedStats = await fs.stat(boundedMuxPath);
-      if (boundedDuration < 2.5 || boundedDuration > 3.5 || boundedStats.size > 20 * 1024 * 1024) {
-        throw new Error(`Looped audio/video mux escaped its duration/size bound: ${boundedDuration}s, ${boundedStats.size} bytes`);
-      }
-
-      const longNarrationPath = path.join(dir, 'long-horror-narration.mp3');
-      await runFFmpeg([
-        '-y',
-        '-f', 'lavfi',
-        '-i', 'sine=frequency=180:duration=48',
-        '-c:a', 'libmp3lame',
-        '-q:a', '4',
-        longNarrationPath
-      ], { timeoutMs: 10000 });
-      const productionAgent = new ProductionManagementAgent({}, {});
-      const beforeNormalize = await getMediaDuration(longNarrationPath);
-      const afterNormalize = await productionAgent.normalizeHorrorNarrationDuration(
-        longNarrationPath,
-        beforeNormalize
-      );
-      const measuredNormalized = await getMediaDuration(longNarrationPath);
-      if (
-        beforeNormalize < 47 ||
-        afterNormalize < 42.5 ||
-        afterNormalize > 44.5 ||
-        measuredNormalized > 44.5
-      ) {
-        throw new Error(
-          `Horror narration runtime normalization failed: before=${beforeNormalize}, after=${afterNormalize}, measured=${measuredNormalized}`
-        );
-      }
-
-      const hybridPath = path.join(dir, 'hybrid.mp4');
-      await generator.renderMediaTimeline([
-        { type: 'video', path: videoPath, duration: 1 },
-        { type: 'image', path: stills[0], duration: 1 }
-      ], hybridPath);
-      const hybridStats = await fs.stat(hybridPath);
-      if (!hybridStats.size) throw new Error('Hybrid provider/still timeline did not produce a video');
-    } finally {
-      await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
-    }
-
-    this.logger.info('Slideshow renderer test completed successfully');
-  }
-
-  async testEvergreenTopics() {
-    const { ContentStrategyAgent } = require('./agents/content-strategy-agent');
-    const agent = new ContentStrategyAgent(null, {});
-    agent.historicalPerformance = [];
-
-    // Single scraped keywords must never become video topics
-    agent.trendingTopics = [{ topic: 'crown', score: 5 }, { topic: 'official', score: 3 }];
-    const fallback = agent.selectOptimalTopic();
-    if (!fallback.topic.includes(' ') || fallback.topic.length < 8) {
-      throw new Error(`Template mode produced a junk topic: "${fallback.topic}"`);
-    }
-
-    // Readability alone is no longer enough: generic/off-identity trends must not become channel topics.
-    agent.trendingTopics = [{ topic: 'artificial intelligence explained', score: 50 }];
-    const generic = agent.selectOptimalTopic();
-    if (generic.topic === 'artificial intelligence explained') {
-      throw new Error('Generic readable trend bypassed the cinematic-curiosity identity gate');
-    }
-
-    // A readable, identity-aligned Horror story signal should still be usable.
-    agent.trendingTopics = [{ topic: 'She Heard Knocking From Inside the Apartment Wall', score: 5 }];
-    const aligned = agent.selectOptimalTopic();
-    if (aligned.topic !== 'She Heard Knocking From Inside the Apartment Wall') {
-      throw new Error(`Identity-aligned Horror story signal was not selected: "${aligned.topic}"`);
-    }
-
-    // Near-duplicates must be rejected even when they score well.
-    agent.historicalPerformance = [{
-      topic: 'She Heard Knocking From Inside the Apartment Wall',
-      createdAt: new Date().toISOString()
-    }];
-    agent.trendingTopics = [{ topic: 'She Heard Tapping From Inside Her Apartment Wall', score: 100 }];
-    const duplicateGuard = agent.selectOptimalTopic();
-    if (/inside (the|her) apartment wall/i.test(duplicateGuard.topic)) {
-      throw new Error('Near-duplicate Horror premise bypassed the repetition guard');
-    }
-
-    this.logger.info('Horror Stickman evergreen topic test completed successfully');
-  }
-
-  async testThumbnailCreativeDirection() {
-    const { ThumbnailDesignerAgent } = require('./agents/thumbnail-designer-agent');
-    const { ProductionManagementAgent } = require('./agents/production-management-agent');
-
-    const agent = new ThumbnailDesignerAgent({ saveThumbnail: async () => {} }, {});
-    const script = {
-      title: 'She Got a Text From Her Own Bedroom',
-      hook: { text: 'Her phone buzzed from inside the locked bedroom.' },
-      conclusion: { finalThought: '' },
-      metadata: {
-        fictional: true,
-        strategy: {
-          topic: 'She Got a Text From Her Own Bedroom While She Was Alone',
-          contentType: 'Story',
-          storyEngine: 'impossible-message',
-          payoff: 'The last message comes from her own number and says the person outside the bedroom is not her.',
-          scrollStopMoment: 'A dark stickman stares at a glowing phone beside a locked bedroom door.',
-          curiosityAngle: 'Who is texting from the locked room?',
-          fictional: true
-        }
-      }
-    };
-
-    const concept = await agent.generateConcept(script);
-    if (!Array.isArray(concept.candidates) || concept.candidates.length !== 3) {
-      throw new Error('Thumbnail creative director did not produce exactly three distinct concepts');
-    }
-
-    const archetypes = new Set(concept.candidates.map(item => item.archetype));
-    if (archetypes.size !== 3) {
-      throw new Error('Thumbnail variants collapsed into duplicate creative ideas');
-    }
-
-    if (!concept.score || !concept.scoring || !concept.rationale) {
-      throw new Error('Selected thumbnail concept is missing transparent scoring evidence');
-    }
-
-    const serialized = JSON.stringify(concept);
-    if (/MUST WATCH|YOU WON'T BELIEVE|HONEST REVIEW|STEP BY STEP/i.test(serialized)) {
-      throw new Error('Generic clickbait thumbnail text leaked into Horror Stickman creative direction');
-    }
-
-    const prompt = await agent.createPrompt(concept, script);
-    if (
-      !/FICTION BOUNDARY:/i.test(prompt) ||
-      !/immediate mobile readability/i.test(prompt) ||
-      !/one dominant fear cue/i.test(prompt) ||
-      !/same Dark Stickman brand grammar/i.test(prompt)
-    ) {
-      throw new Error('Thumbnail prompt is missing fiction-safety, mobile-readability, or Dark Stickman consistency constraints');
-    }
-    if (/ethereal, dreamy|floating particles|reaction faces/i.test(prompt)) {
-      throw new Error('Legacy generic visual styling leaked into the Horror Stickman thumbnail prompt');
-    }
-
-    agent.createThumbnail = async (_concept, suffix) => `base-${suffix}.png`;
-    agent.addTextOverlay = async (path) => path;
-    agent.optimizeForYouTube = async (_path, suffix) => `optimized-${suffix}.jpg`;
-    const variants = await agent.generateABVariants(concept);
-    if (variants.length !== 3 || new Set(variants.map(item => item.concept.archetype)).size !== 3) {
-      throw new Error('A/B packaging did not preserve three materially different thumbnail concepts');
-    }
-
-    const production = new ProductionManagementAgent({}, {});
-    let syntheticThumbnailCalled = false;
-    production.aiVideoGenerator.generateThumbnail = async () => {
-      syntheticThumbnailCalled = true;
-      return { path: 'generated-thumbnail.png', dimensions: { width: 1280, height: 720 }, fileSize: 1234 };
-    };
-    const processed = await production.processThumbnail({ path: 'draft.jpg', concept, prompt }, script);
-    if (
-      syntheticThumbnailCalled ||
-      processed.generatedWith !== 'creative-direction-draft' ||
-      processed.productionReady !== false ||
-      processed.prompt !== prompt ||
-      processed.concept?.archetype !== concept.archetype
-    ) {
-      throw new Error('Free-only production did not preserve the selected thumbnail brief as non-synthetic creative direction');
-    }
-
-    this.logger.info('Thumbnail creative direction test completed successfully');
-  }
-
-  async testDocumentaryPackagingStrategy() {
-    const { SEOOptimizerAgent } = require('./agents/seo-optimizer-agent');
-
-    let saved = null;
-    const db = {
-      saveSEOData: async data => { saved = data; },
-      getKeywordHistory: async () => []
-    };
-    const agent = new SEOOptimizerAgent(db, {});
-    agent.aiTextService.isAvailable = () => false;
-
-    const strategy = {
-      topic: 'Why Engineers Build Airports on Artificial Islands',
-      angle: 'The hidden ground-engineering problem beneath offshore airports',
-      contentType: 'Story',
-      targetAudience: 'Global curiosity-driven viewers',
-      keywords: ['artificial island airport', 'airport engineering', 'land reclamation'],
-      researchSources: [
-        { url: 'https://example.com/engineering-source', title: 'Engineering source' }
-      ]
-    };
-    const script = {
-      title: 'Why Engineers Build Airports on Artificial Islands',
-      hook: { text: 'Some airports exist only because engineers first had to create the ground beneath them.', duration: 20 },
-      mainContent: {
-        sections: [
-          { title: 'Creating the Ground', duration: 80 },
-          { title: 'The Settlement Problem', duration: 90 },
-          { title: 'Holding Back the Sea', duration: 90 },
-          { title: 'Why It Can Work', duration: 70 }
-        ]
-      },
-      conclusion: { finalThought: 'The runway works only because the engineered ground beneath it keeps changing in controlled ways.' },
-      metadata: { strategy }
-    };
-    const thumbnail = {
-      concept: {
-        archetype: 'impossible-context',
-        primarySubject: 'an offshore airport',
-        visualIdea: 'One offshore airport surrounded by open water, with the engineered island clearly readable.',
-        truthBoundary: 'Do not invent scale, damage, weather, or structures.'
-      }
-    };
-
-    const result = await agent.optimize(script, strategy, { thumbnail });
-    if (!saved || saved.title !== result.title) {
-      throw new Error('Documentary packaging result was not persisted');
-    }
-    if (!Array.isArray(result.titleCandidates) || result.titleCandidates.length !== 3) {
-      throw new Error('SEO packaging did not produce exactly three title candidates');
-    }
-    if (new Set(result.titleCandidates.map(item => item.title)).size !== 3) {
-      throw new Error('SEO packaging title candidates collapsed into duplicates');
-    }
-    const serializedTitles = result.titleCandidates.map(item => item.title).join(' | ');
-    if (/SHOCKING|INSANE|YOU WON'T BELIEVE|SECRET NOBODY|ULTIMATE|\(2026\)/i.test(serializedTitles)) {
-      throw new Error('Legacy clickbait or year stuffing leaked into documentary titles');
-    }
-    if (!Array.isArray(result.packagingVariants) || result.packagingVariants.length !== 3 ||
-        result.packagingVariants.some(item => item.thumbnailArchetype !== 'impossible-context')) {
-      throw new Error('SEO packaging did not preserve title-thumbnail complementarity');
-    }
-    if (/WHAT YOU'LL LEARN|USEFUL LINKS|RELATED VIDEOS|comprehensive guide|Perfect for|#youtube|#viral/i.test(result.description)) {
-      throw new Error('Legacy template or keyword-dump copy leaked into the description');
-    }
-    if (result.tags.some(tag => /^(youtube|viral|trending|new|video)$/i.test(tag)) || result.tags.length > 12) {
-      throw new Error('Generic tag stuffing leaked into documentary metadata');
-    }
-    if (result.sources.length !== 1 || result.sources[0].url !== 'https://example.com/engineering-source') {
-      throw new Error('Supplied research provenance was not preserved');
-    }
-    if (result.chapters.length < 3 || result.chapters[0].time !== '00:00') {
-      throw new Error('Useful long-form chapters were not generated correctly');
-    }
-    if (!result.packagingScore || result.packagingScore.thumbnailComplementarity < 70) {
-      throw new Error('Packaging score is missing title-thumbnail complementarity');
-    }
-
-    const previousAutonomousMode = process.env.AUTONOMOUS_MODE;
-    process.env.AUTONOMOUS_MODE = 'true';
-    try {
-      const horrorAgent = new SEOOptimizerAgent({
-        saveSEOData: async () => {},
-        getKeywordHistory: async () => []
-      }, {});
-      horrorAgent.generatePackagingWithAI = async () => ({
-        titleCandidates: [
-          { title: 'Something Was Wrong With the Camera', mode: 'curiosity', rationale: 'AI candidate intentionally too generic for this regression.' },
-          { title: 'The Screen Showed Something Impossible', mode: 'fear', rationale: 'AI candidate intentionally too generic for this regression.' },
-          { title: 'He Should Not Have Checked Again', mode: 'hybrid', rationale: 'AI candidate intentionally too generic for this regression.' }
-        ],
-        description: 'A night guard sees something impossible on the monitor while working alone.',
-        discoveryTerms: ['night guard horror', 'security camera horror'],
-        tags: ['horror', 'security camera horror']
-      });
-      const horrorStrategy = {
-        topic: "A night guard discovers tomorrow's date stamp on a live security monitor showing himself already dead at his desk.",
-        contentType: 'Story',
-        everydayAnchor: 'A night guard watches security monitors alone at work',
-        fearMechanism: 'one live camera is timestamped tomorrow and shows his own desk',
-        payoff: 'The camera feed shows the chair turning toward him before he reaches the room.',
-        brandFit: 10,
-        nicheFit: 10,
-        retentionPotential: 10,
-        payoffStrength: 10,
-        twistScore: 10,
-        keywords: ['night guard horror', 'security camera horror', 'stickman horror']
-      };
-      const horrorScript = {
-        title: "The Security Monitor Showing Tomorrow's Date",
-        hook: { text: 'The security monitor was dated tomorrow.' },
-        mainContent: { sections: [] },
-        keywords: ['horror', 'security camera']
-      };
-      const horrorThumbnail = {
-        concept: {
-          score: 97,
-          archetype: 'impossible-presence',
-          visualIdea: 'Dark stickman night guard staring at a monitor stamped tomorrow.'
-        }
-      };
-      const repaired = await horrorAgent.optimize(horrorScript, horrorStrategy, { thumbnail: horrorThumbnail });
-      if (
-        repaired.titleCandidates[0]?.scoring?.specificity < 82 ||
-        repaired.titleCandidates[0]?.score < 88 ||
-        repaired.packagingScore?.overall < 86
-      ) {
-        throw new Error('Deterministic Horror packaging retry did not recover from a weak AI title set');
-      }
-    } finally {
-      if (previousAutonomousMode === undefined) delete process.env.AUTONOMOUS_MODE;
-      else process.env.AUTONOMOUS_MODE = previousAutonomousMode;
-    }
-
-    this.logger.info('Documentary packaging strategy test completed successfully');
-  }
-
-  async testDocumentaryProductionDirection() {
-    const { ProductionManagementAgent } = require('./agents/production-management-agent');
-    const { AIVideoGenerator } = require('./utils/ai-video-generator');
-
-    const agent = new ProductionManagementAgent({
-      getChannelProfile: async () => ({ visual_style: 'dark stickman psychological horror' })
-    }, {});
-    const strategy = {
-      topic: 'She Got a Text From Her Own Bedroom While She Was Alone',
-      fictional: true,
-      requestedLengthKey: 'short',
-      storyEngine: 'impossible-message',
-      scrollStopMoment: 'A dark stickman stares at a glowing phone beside a locked bedroom door.',
-      visualVariety: ['phone buzzes', 'locked door', 'message changes', 'shadow under door'],
-      payoff: 'The final message comes from her own number and says the person outside the room is not her.'
-    };
-    const script = {
-      title: 'She Got a Text From Her Own Bedroom',
-      hook: { text: 'Her phone buzzed from inside the locked bedroom.', duration: '0:00-0:02' },
-      introduction: { topicIntro: '', valueProposition: '', credibility: '', duration: '0 seconds' },
-      mainContent: {
-        sections: [
-          { title: 'Buzz', content: ['She lived alone, but the message said: do not open the bedroom door.'], duration: 7, visualQuery: 'dark stickman in hallway holding glowing phone beside locked bedroom', visualRequiredAny: ['stickman','phone'], visualForbiddenAny: ['bright','comedy','gore'] },
-          { title: 'Closer', content: ['She stepped closer. Another text appeared: I can hear you breathing.'], duration: 7, visualQuery: 'stickman approaching dark locked bedroom door while phone glows', visualRequiredAny: ['stickman','door'], visualForbiddenAny: ['bright','comedy','gore'] },
-          { title: 'Handle', content: ['The handle moved once. Then her own contact name appeared as the sender.'], duration: 7, visualQuery: 'close dark stickman view of moving door handle and glowing phone', visualRequiredAny: ['stickman','door handle'], visualForbiddenAny: ['bright','comedy','gore'] },
-          { title: 'Twist', content: ['The last text said: the person outside the bedroom is not you.'], duration: 7, visualQuery: 'dark stickman frozen outside door while second shadow appears behind figure', visualRequiredAny: ['stickman','shadow'], visualForbiddenAny: ['bright','comedy','gore'] }
-        ]
-      },
-      conclusion: { recap: [], finalThought: '', duration: '0 seconds' },
-      callToAction: { subscribe: '', like: '', comment: '' },
-      metadata: { strategy, fictional: true, spokenWordCount: 100 }
-    };
-
-    const tts = agent.formatScriptForTTS(script);
-    if (/Welcome back|Section 1|Section 2|Like this video|Comment below/i.test(tts)) {
-      throw new Error('Presenter/template language leaked into Horror Stickman narration');
-    }
-
-    const scenes = agent.createHorrorStickmanScenePlan(script, strategy, 32);
-    if (
-      scenes.length !== 4 ||
-      scenes[0].role !== 'hook' ||
-      scenes[3].role !== 'twist' ||
-      scenes.some(scene => !/vertical 9:16/i.test(scene.prompt)) ||
-      scenes.some(scene => !/same recurring adult stickman/i.test(scene.prompt)) ||
-      scenes.some(scene => !/no gore/i.test(scene.prompt))
-    ) {
-      throw new Error('Horror Stickman scene plan lost vertical, character-consistency, hook/twist, or safety constraints');
-    }
-
-    const generator = new AIVideoGenerator({}, {});
-    const enhanced = generator.enhanceVisualPrompt('stickman beside a locked bedroom door', 'dark stickman psychological horror');
-    if (
-      !/vertical 9:16/i.test(enhanced) ||
-      !/dark stickman/i.test(enhanced) ||
-      !/no gore/i.test(enhanced) ||
-      /ethereal|floating particles|vibrant colors/i.test(enhanced)
-    ) {
-      throw new Error('Horror Stickman visual handoff lost the locked vertical dark visual style');
-    }
-
-    const captions = await agent.createSRTCaptions({ script, strategy, estimatedDuration: 32 });
-    if (!/^1\n00:00:00,000 --> /m.test(captions) || /Welcome back|Section 1/.test(captions)) {
-      throw new Error('Caption generation is not aligned with clean Horror Shorts narration');
-    }
-
-    if (agent.calculatePublishTime({}) !== null || agent.calculatePriority({ estimatedViews: 999999 }) !== 50) {
-      throw new Error('Production agent is inventing scheduling or predicted-view priority');
-    }
-
-    this.logger.info('Horror Stickman production direction test completed successfully');
   }
 
   async testEvidenceBasedPublishingStrategy() {
@@ -4796,7 +2514,7 @@ class SystemTest {
   }
 
   async testWalkthroughModule() {
-    const { SetupWalkthrough, AI_PROVIDER_GUIDE, VIDEO_PROVIDER_GUIDE } = require('./walkthrough');
+    const { SetupWalkthrough, AI_PROVIDER_GUIDE } = require('./walkthrough');
     const { PROVIDERS, GEMINI_MODELS, GEMINI_DEFAULT_MODEL, TEXT_PROVIDER_ENV_KEYS } = require('./utils/ai-text-service');
 
     const walkthrough = new SetupWalkthrough();
@@ -4855,18 +2573,6 @@ class SystemTest {
       }
     }
 
-    for (const id of ['slideshow', 'seedance', 'minimax_h3', 'google_omni', 'kling', 'wan']) {
-      const guide = VIDEO_PROVIDER_GUIDE[id];
-      if (!guide?.label) throw new Error(`Walkthrough is missing video provider "${id}"`);
-      if (id !== 'slideshow') {
-        const credentials = {};
-        guide.save(credentials, 'test-key', 'test-secret');
-        if (!Object.keys(credentials).length || !guide.keyUrl || !guide.credentialName) {
-          throw new Error(`Video provider guide "${id}" cannot save its credentials`);
-        }
-      }
-    }
-
     const currentOpenRouterModels = [
       'openai/gpt-5.6-sol',
       'anthropic/claude-fable-5',
@@ -4920,11 +2626,6 @@ class SystemTest {
   async testAgentLoading() {
     // Test that agent files can be loaded
     const agentFiles = [
-      './agents/content-strategy-agent',
-      './agents/script-writer-agent',
-      './agents/thumbnail-designer-agent',
-      './agents/seo-optimizer-agent',
-      './agents/production-management-agent',
       './agents/publishing-scheduling-agent',
       './agents/analytics-optimization-agent',
       './utils/discoverability-service',
@@ -4938,6 +2639,14 @@ class SystemTest {
         throw new Error(`Failed to load ${agentFile}: ${error.message}`);
       }
     }
+
+    // The registry contract: the agents the service starts have the methods the rest of the code calls.
+    const { AgentContractService } = require('./utils/agent-contract-service');
+    const contracts = new AgentContractService();
+    contracts.validateAgentRegistry({ publishing: { scheduleContent() {} }, analytics: { getRecentAnalytics() {} } });
+    let failedClosed = false;
+    try { contracts.validateAgentRegistry({ publishing: {} }); } catch (error) { failedClosed = error.code === 'AGENT_CONTRACT_VIOLATION' && /analytics: missing agent/.test(error.message); }
+    if (!failedClosed) throw new Error('An agent registry with a missing agent or method was accepted');
 
     this.logger.info('Agent loading test completed successfully');
   }

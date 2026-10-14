@@ -30,7 +30,7 @@ printf '%s' "$dashboard_json" > "$dashboard_file"
 
 HEALTH_FILE="$health_file" DASHBOARD_FILE="$dashboard_file" node <<'NODE'
 const fs = require('node:fs');
-const identity = require('./config/channel-identity.json');
+const identity = require('./utils/channel-identity');
 const shortsPerDayTarget = identity.publishingCadence.shortsPerDay.target;
 const shortsPerWeek = shortsPerDayTarget * 7;
 const health = JSON.parse(fs.readFileSync(process.env.HEALTH_FILE, 'utf8') || '{}');
@@ -39,7 +39,7 @@ const dashboard = JSON.parse(fs.readFileSync(process.env.DASHBOARD_FILE, 'utf8')
 if (health.status !== 'healthy' || health.initialized !== true || health.setupRequired === true) {
   throw new Error('health is not ready for autonomous production');
 }
-const expectedAgents = ['strategy', 'scriptWriter', 'thumbnailDesigner', 'seoOptimizer', 'production', 'publishing', 'analytics'];
+const expectedAgents = ['publishing', 'analytics'];
 const agents = new Set(Array.isArray(health.agents) ? health.agents : []);
 const missing = expectedAgents.filter(name => !agents.has(name));
 if (missing.length) throw new Error('missing agents: ' + missing.join(', '));
@@ -48,9 +48,9 @@ if (dashboard.system?.automationPaused !== false) throw new Error('automation is
 const effectiveApproval = dashboard.system?.control ? dashboard.system.control.approvalRequired : String(dashboard.settings?.approval_required) !== 'false';
 if (effectiveApproval !== false) throw new Error('human approval is still required');
 if (dashboard.channelStrategy?.status !== 'active') throw new Error('channel strategy is not active');
-if (Number(dashboard.channelStrategy?.cadence_per_week) !== shortsPerWeek) throw new Error(`Horror Stickman Shorts cadence is not ${shortsPerWeek}/week (channel-identity target ${shortsPerDayTarget}/day)`);
+if (Number(dashboard.channelStrategy?.cadence_per_week) !== shortsPerWeek) throw new Error(`Shorts cadence is not ${shortsPerWeek}/week (channel-identity target ${shortsPerDayTarget}/day)`);
 if (String(dashboard.channelStrategy?.default_length) !== 'short') throw new Error('channel strategy is not Shorts-first');
-if (!String(dashboard.channelStrategy?.objective || '').toLowerCase().includes('horror stickman')) throw new Error('channel strategy is not the Horror Stickman niche');
+if (!String(dashboard.channelStrategy?.objective || '').trim()) throw new Error('channel strategy has no objective');
 
 const readiness = dashboard.readiness || {};
 if (!['passed', 'warning'].includes(readiness.status) || readiness.stale === true) {

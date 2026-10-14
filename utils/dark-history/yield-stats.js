@@ -9,6 +9,7 @@ function classifyNote(note) {
   if (/number "[^"]*" is not in its evidence/.test(text)) return 'number not in evidence';
   if (/evidence not found verbatim/.test(text)) return 'evidence not verbatim';
   if (/does not appear in the source|invented quotation/.test(text)) return 'name or quote not in source';
+  if (/the source calls this uncertain/.test(text)) return 'uncertain claim stated as fact';
   if (/the source does not support/.test(text)) return 'sentence not supported';
   if (/picture does not show|the check gave no verdict/.test(text)) return 'picture does not fit';
   if (/at least 4 beats|only \d+ beats are narrated|script has \d+ beats/.test(text)) return 'too few beats narrated';
@@ -72,6 +73,16 @@ class YieldStats {
       : ['timeout', 'empty', 'rate_limited'].includes(event.outcome) ? `failed = failed + 1, ${event.outcome} = ${event.outcome} + 1` : 'failed = failed + 1';
     await this.db.executeQuery('INSERT OR IGNORE INTO dh_llm_stats (day, role, model) VALUES (?, ?, ?)', [today(), role, model]);
     await this.db.executeQuery(`UPDATE dh_llm_stats SET ${set} WHERE day = ? AND role = ? AND model = ?`, [today(), role, model]);
+  }
+
+  /** Drafts of a Short that WAS made which the blocking disputed-claim rule sent back (it is rewritten and then passes): one count per blocked draft, so the rule's cost is visible next to the failures. */
+  async uncertainBlocked(attempts) {
+    const n = (Array.isArray(attempts) ? attempts : []).filter(a => (a.failures || []).some(f => /a claim the source calls uncertain/.test(f))).length;
+    if (!n) return 0;
+    await this.ensure();
+    await this.db.executeQuery('INSERT OR IGNORE INTO dh_rejections (day, cause) VALUES (?, ?)', [today(), 'uncertain claim blocked a draft (Short made)']);
+    await this.db.executeQuery('UPDATE dh_rejections SET n = n + ? WHERE day = ? AND cause = ?', [n, today(), 'uncertain claim blocked a draft (Short made)']);
+    return n;
   }
 
   async jobFailure(error) {

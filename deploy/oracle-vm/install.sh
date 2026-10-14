@@ -65,8 +65,6 @@ NODE
 
 npm run lint
 npm test
-# Offline end-to-end Short on this machine (temp DB, no network, no upload).
-npm run dry-run:horror
 npm run readiness:production
 
 # Keep the built-in scheduler paused until the first real acceptance run and

@@ -25,11 +25,10 @@ else
 fi
 
 # Persist the no-human-review operating policy, quarantine any old queue entries,
-# and seed/activate the canonical Horror Stickman Shorts strategy without printing secrets.
+# and seed/activate the Dark History strategy without printing secrets.
 node <<'NODE'
 const { Database } = require('./database/db');
-const identity = require('./config/channel-identity.json');
-const niche = require('./config/horror-stickman-niche.json');
+const identity = require('./utils/channel-identity');
 
 (async () => {
   const db = new Database();
@@ -43,7 +42,7 @@ const niche = require('./config/horror-stickman-niche.json');
     await db.setSetting('optimization_enabled', 'true');
 
     // Quarantine unknown pre-migration queue state exactly once. Re-running activation
-    // must never pause newly generated, QA-approved Horror Stickman schedules.
+    // must never pause newly generated, QA-approved schedules. (The marker keeps the name it was first written under.)
     const quarantineMarker = await db.getSetting('horror_stickman_queue_quarantined_v1');
     if (quarantineMarker !== 'true') {
       await db.executeQuery(
@@ -61,8 +60,8 @@ const niche = require('./config/horror-stickman-niche.json');
 
     const current = await db.getChannelStrategy() || {};
     const autonomousPolicy = [
-      'Locked niche: ' + niche.name + '.',
-      'No human review. Any weak hook, weak twist, semantic duplicate, brand drift, graphic-horror violation, placeholder media, narration failure, render failure, caption failure, metadata failure, cadence conflict, readiness failure, or ambiguous upload must fail closed and be skipped.'
+      'Locked identity: ' + String(identity.workingIdentity || 'Dark History') + '.',
+      'No human review. Any unsupported claim, invented name, number, date or quotation, picture that does not show what is said, missing or unfree licence, placeholder media, narration failure, render failure, caption failure, metadata failure, cadence conflict, readiness failure, or ambiguous upload must fail closed and be skipped.'
     ].join(' ');
     const baseConstraints = String(current.constraints || '')
       .split(autonomousPolicy)
@@ -71,7 +70,7 @@ const niche = require('./config/horror-stickman-niche.json');
       .trim();
 
     await db.saveChannelStrategy({
-      objective: 'Grow an original global English Horror Stickman Shorts channel through high-retention psychological micro-horror, consistent visual identity, and data-driven iteration.',
+      objective: 'Grow a global English channel of true-history Shorts told from real sources and real, freely licensed pictures, with every claim checked against its source, and iterate on the data.',
       audience: identity.audience,
       valueProposition: identity.corePromise,
       contentPillars: identity.contentPillars.map(pillar => pillar.label),
@@ -79,7 +78,7 @@ const niche = require('./config/horror-stickman-niche.json');
       videosPerRun: 1,
       defaultFormat: 'story',
       defaultLength: 'short',
-      successMetric: 'Maximize Shorts views, stayed-to-watch, completion, average view duration, returning viewers, and subscriber growth without lowering originality or Horror Stickman quality gates.',
+      successMetric: 'Maximize Shorts views, stayed-to-watch, completion, average view duration, returning viewers, and subscriber growth without lowering any source, fact-check, picture or licence gate.',
       primaryKpi: 'views',
       targetValue: current.target_value ?? null,
       targetWindowDays: current.target_window_days || 28,
@@ -176,4 +175,4 @@ elif [[ "$http_code" != "202" ]]; then
 fi
 rm -f /tmp/youtube-agent-autonomous-start.json
 
-echo "Autonomous Horror Stickman Shorts is active: quality-gated generation enabled, human approval disabled, public YouTube upload enabled, initial operator run requested."
+echo "Autonomous Dark History Shorts is active: quality-gated generation enabled, human approval disabled, public YouTube upload enabled, initial operator run requested."

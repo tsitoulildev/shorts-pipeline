@@ -143,7 +143,7 @@ function renderDashboard() {
   renderEngagement(ui.state.engagement || {});
   renderReadiness(state.readiness);
   renderOperator(state.channelStrategy, state.operatorRuns || [], { ...state.system, readiness: state.readiness });
-  populateSettings(state.profile, state.settings, state.system.videoProviders || []);
+  populateSettings(state.profile, state.settings);
 }
 
 function renderReadiness(readiness = {}) {
@@ -681,16 +681,10 @@ function renderOperator(strategy, runs, system) {
   $('#operator-strategy-status').textContent = label(strategyStatus);
   const run = runs[0];
   const active = run && ['queued', 'running', 'cancelling'].includes(run.status);
-  const recoverable = run && ['failed', 'interrupted', 'completed_with_issues'].includes(run.status);
   $('#activate-operator-button').disabled = Boolean(system.setupRequired || active || system.readiness?.status === 'failed');
   $('#activate-operator-button').title = system.readiness?.status === 'failed' ? 'Resolve the production readiness failures first' : '';
-  $('#activate-operator-button').textContent = strategy?.status === 'active' ? 'Run strategy now' : 'Activate & run now';
+  $('#activate-operator-button').textContent = strategy?.status === 'active' ? 'Strategy is active' : 'Activate';
   $('#pause-operator-button').classList.toggle('hidden', strategy?.status !== 'active');
-  $('#cancel-operator-run').classList.toggle('hidden', !active);
-  if (active) $('#cancel-operator-run').dataset.runId = run.id;
-  $('#resume-operator-run').classList.toggle('hidden', !recoverable);
-  $('#resume-operator-run').disabled = Boolean(system.setupRequired || system.readiness?.status === 'failed');
-  if (recoverable) $('#resume-operator-run').dataset.runId = run.id;
 
   if (!run) {
     $('#operator-run-title').textContent = 'Waiting for a strategy';
@@ -720,7 +714,7 @@ function renderOperator(strategy, runs, system) {
   }).join('') : empty('Research and planning will appear here when the run begins.');
 }
 
-function populateSettings(profile = {}, settings = {}, providers = []) {
+function populateSettings(profile = {}, settings = {}) {
   const form = $('#profile-form');
   const mapping = {
     channelName: profile.channel_name,
@@ -738,20 +732,6 @@ function populateSettings(profile = {}, settings = {}, providers = []) {
   }
   $('#approval-required').checked = settings.approval_required !== 'false';
   $('#notifications-enabled').checked = settings.notification_enabled !== 'false';
-  const videoMapping = {
-    videoProvider: settings.video_provider || 'slideshow',
-    videoGenerationMode: settings.video_generation_mode || 'hybrid',
-    videoClipDuration: settings.video_clip_duration || '8',
-    videoMaxGeneratedSeconds: settings.video_max_generated_seconds || '60'
-  };
-  for (const [name, value] of Object.entries(videoMapping)) {
-    if (form.elements[name] && document.activeElement !== form.elements[name]) form.elements[name].value = value;
-  }
-  const selected = providers.find(provider => provider.id === videoMapping.videoProvider);
-  $('#video-provider-status').textContent = videoMapping.videoProvider === 'auto'
-    ? `${providers.filter(provider => provider.available && provider.id !== 'slideshow').length} paid provider(s) available; local slideshow remains the final fallback.`
-    : videoMapping.videoProvider === 'slideshow' ? 'Local FFmpeg slideshow is selected; no external video credentials are required.'
-      : selected?.available ? `${label(selected.id)} is configured (${selected.model}).` : `${label(videoMapping.videoProvider)} credentials are not configured.`;
 }
 
 function switchView(view) {
@@ -858,68 +838,6 @@ function renderDiscoverabilityPanel(item) {
   </section>`;
 }
 
-function renderSceneEditor(item, canReview = true) {
-  const scenes = item.scenes || [];
-  if (!scenes.length) return '';
-  const verifiedSources = (item.provenance?.sources || []).filter(source => source.status === 'verified');
-  const audio = item.assets?.audio || {};
-  const intentionalSilence = audio.intentionalSilence === true;
-  const narrationIssues = scenes.filter(scene => !['current', 'intentional_silence'].includes(scene.narrationStatus)).length;
-  return `<section class="scene-repair-panel">
-    <div class="panel-heading scene-heading">
-      <div><p class="eyebrow">SCENE REPAIR STUDIO</p><h3>Repair the timeline, not the whole video</h3><p>Edit, replace, or regenerate one scene. Changes remain draft-only until the timeline is rebuilt and approved.</p></div>
-      ${canReview ? `<button type="button" class="button primary small" data-rebuild-scenes="${escapeHTML(item.id)}">Rebuild final video</button>` : ''}
-    </div>
-    <div class="narration-recovery ${intentionalSilence ? 'intentional' : narrationIssues ? 'attention' : ''}">
-      <div><p class="eyebrow">NARRATION RELIABILITY</p><strong>${intentionalSilence ? 'Intentional silence confirmed' : narrationIssues ? `${narrationIssues} scene${narrationIssues === 1 ? '' : 's'} need narration` : 'Narration evidence is current'}</strong>
-      <p>${intentionalSilence ? escapeHTML(audio.silenceReason || '') : audio.error ? escapeHTML(audio.error) : 'Regenerate narration without replacing the scene visual. Approval remains blocked until audio is ready.'}</p>
-      ${audio.provider ? `<span class="narration-evidence">${escapeHTML(audio.provider)}${audio.model ? ` · ${escapeHTML(audio.model)}` : ''}${audio.externalTaskId ? ` · task ${escapeHTML(audio.externalTaskId)}` : ''}</span>` : ''}</div>
-      ${canReview ? intentionalSilence
-        ? '<button type="button" class="button secondary small" data-require-narration>Require narration</button>'
-        : '<button type="button" class="button secondary small" data-intentional-silence>Use intentional silence</button>' : ''}
-    </div>
-    <div class="scene-summary"><strong>${scenes.length} scenes</strong><span>${Math.round(scenes.reduce((sum, scene) => sum + Number(scene.duration || 0), 0))}s timeline</span><span>${scenes.filter(scene => scene.status !== 'ready').length} pending repairs</span></div>
-    <div class="scene-list">
-      ${scenes.map((scene, index) => {
-        const disabled = !canReview || scene.locked;
-        const sourceIds = new Set(scene.provenanceSourceIds || []);
-        const preview = scene.assetUrl
-          ? scene.assetType === 'video'
-            ? `<video controls preload="metadata"><source src="${escapeHTML(scene.assetUrl)}"></video>`
-            : `<img src="${escapeHTML(scene.assetUrl)}" alt="${escapeHTML(scene.label)} scene asset">`
-          : '<div class="preview-placeholder">No scene asset</div>';
-        return `<article class="scene-card ${scene.locked ? 'locked' : ''}" data-scene-card="${escapeHTML(scene.id)}">
-          <div class="scene-card-top">
-            <div class="scene-preview">${preview}<span class="scene-number">${index + 1}</span></div>
-            <div class="scene-identity">
-              <div class="scene-status-row">${statusChip(scene.status)} ${statusChip(`narration_${scene.narrationStatus || 'unavailable'}`)}<span>r${scene.revision}</span></div>
-              <label><span>Scene label</span><input data-scene-field="label" maxlength="120" value="${escapeHTML(scene.label)}" ${disabled ? 'disabled' : ''}></label>
-              <label><span>Duration</span><input data-scene-field="duration" type="number" min="2" max="600" step="0.5" value="${escapeHTML(scene.duration)}" ${disabled ? 'disabled' : ''}></label>
-            </div>
-          </div>
-          <label><span>Narration</span><textarea data-scene-field="scriptText" rows="4" maxlength="10000" ${disabled ? 'disabled' : ''}>${escapeHTML(scene.scriptText)}</textarea></label>
-          <label><span>Visual prompt</span><textarea data-scene-field="prompt" rows="3" maxlength="2000" ${disabled ? 'disabled' : ''}>${escapeHTML(scene.prompt)}</textarea></label>
-          ${verifiedSources.length ? `<fieldset class="source-checklist scene-sources" ${disabled ? 'disabled' : ''}><legend>Verified evidence linked to this narration</legend>${verifiedSources.map(source => `<label><input type="checkbox" data-scene-source value="${escapeHTML(source.id)}" ${sourceIds.has(source.id) ? 'checked' : ''}> ${escapeHTML(source.title)}</label>`).join('')}</fieldset>` : ''}
-          <div class="scene-options">
-            <label class="toggle"><input type="checkbox" data-scene-factual checked ${disabled ? 'disabled' : ''}><span></span> Narration changes may contain factual claims</label>
-            <span>Visual: ${escapeHTML(scene.provider || 'local')} ${scene.model ? `· ${escapeHTML(scene.model)}` : ''}</span>
-          </div>
-          <div class="scene-narration-evidence"><span>Narration: ${escapeHTML(scene.narrationProvider || 'not generated')}${scene.narrationModel ? ` · ${escapeHTML(scene.narrationModel)}` : ''}${scene.narrationTaskId ? ` · task ${escapeHTML(scene.narrationTaskId)}` : ''}</span>${scene.narrationError ? `<span class="danger-text">${escapeHTML(scene.narrationError)}</span>` : ''}</div>
-          ${canReview ? `<div class="scene-actions">
-            <button type="button" class="text-button" data-scene-move="up" ${disabled || index === 0 ? 'disabled' : ''}>↑ Earlier</button>
-            <button type="button" class="text-button" data-scene-move="down" ${disabled || index === scenes.length - 1 ? 'disabled' : ''}>↓ Later</button>
-            <button type="button" class="text-button approve" data-scene-save ${disabled ? 'disabled' : ''}>Save scene</button>
-            <button type="button" class="text-button" data-scene-narration ${disabled ? 'disabled' : ''}>Regenerate narration only</button>
-            <button type="button" class="text-button" data-scene-regenerate ${disabled ? 'disabled' : ''}>Regenerate scene</button>
-            <label class="text-button upload-button ${disabled ? 'disabled' : ''}">Replace asset<input type="file" data-scene-upload accept="image/png,image/jpeg,image/webp,video/mp4" ${disabled ? 'disabled' : ''}></label>
-            <button type="button" class="text-button" data-scene-lock>${scene.locked ? 'Unlock' : 'Lock'}</button>
-          </div>` : ''}
-        </article>`;
-      }).join('')}
-    </div>
-  </section>`;
-}
-
 async function openContent(productionId) {
   $('#loading').classList.add('active');
   try {
@@ -953,7 +871,6 @@ async function openContent(productionId) {
             </section>` : ''}
           </div>
         </div>
-        ${renderSceneEditor(item, canReview)}
         ${renderDiscoverabilityPanel(item)}
         ${renderProvenanceEditor(item.provenance, canReview)}
           <div class="form-grid two">
@@ -1000,45 +917,11 @@ function contentFormData() {
   };
 }
 
-function sceneFormData(card) {
-  return {
-    label: card.querySelector('[data-scene-field="label"]').value,
-    duration: Number(card.querySelector('[data-scene-field="duration"]').value),
-    scriptText: card.querySelector('[data-scene-field="scriptText"]').value,
-    prompt: card.querySelector('[data-scene-field="prompt"]').value,
-    provenanceSourceIds: Array.from(card.querySelectorAll('[data-scene-source]:checked')).map(input => input.value),
-    factualChange: card.querySelector('[data-scene-factual]')?.checked !== false
-  };
-}
-
 async function refreshContentDialog(productionId, message) {
   if (message) showToast(message);
   if ($('#content-dialog').open) $('#content-dialog').close();
   await refreshDashboard(true);
   await openContent(productionId);
-}
-
-async function uploadSceneAsset(productionId, sceneId, file) {
-  if (!confirm('Confirm you own or have permission to use this replacement asset.')) return;
-  const synthetic = confirm('Does this replacement contain realistic altered or synthetic media that should be disclosed to YouTube?');
-  $('#loading').classList.add('active');
-  try {
-    await api(`/api/content/${encodeURIComponent(productionId)}/scenes/${encodeURIComponent(sceneId)}/asset`, {
-      method: 'PUT',
-      body: file,
-      headers: {
-        'Content-Type': file.type,
-        'x-file-name': file.name,
-        'x-rights-confirmed': 'true',
-        'x-synthetic-media': String(synthetic)
-      }
-    });
-    await refreshContentDialog(productionId, 'Scene asset replaced. Rebuild before approval.');
-  } catch (error) {
-    showToast(error.message, 'error');
-  } finally {
-    $('#loading').classList.remove('active');
-  }
 }
 
 function provenanceFormData() {
@@ -1130,11 +1013,6 @@ document.addEventListener('click', async event => {
   const cancel = event.target.closest('[data-cancel-job]');
   if (cancel && confirm('Cancel this generation job after its current stage?')) {
     await mutate(`/api/jobs/${encodeURIComponent(cancel.dataset.cancelJob)}/cancel`, 'POST', {}, 'Cancellation requested.').catch(() => {});
-  }
-
-  const idea = event.target.closest('[data-generate-idea]');
-  if (idea) {
-    await mutate(`/api/ideas/${encodeURIComponent(idea.dataset.generateIdea)}/generate`, 'POST', { length: 'medium' }, 'Idea queued for generation.').catch(() => {});
   }
 
   const resume = event.target.closest('[data-resume-job]');
@@ -1283,101 +1161,6 @@ document.addEventListener('click', async event => {
   }
 
 
-  const sceneButton = event.target.closest('[data-scene-save], [data-scene-narration], [data-scene-regenerate], [data-scene-lock], [data-scene-move]');
-  if (sceneButton) {
-    const card = sceneButton.closest('[data-scene-card]');
-    const productionId = $('#content-review-form')?.dataset.productionId;
-    const sceneId = card?.dataset.sceneCard;
-    if (!productionId || !sceneId) return;
-    try {
-      if (sceneButton.matches('[data-scene-lock]')) {
-        await api(`/api/content/${encodeURIComponent(productionId)}/scenes/${encodeURIComponent(sceneId)}`, {
-          method: 'PATCH', body: JSON.stringify({ locked: !card.classList.contains('locked') })
-        });
-        await refreshContentDialog(productionId, card.classList.contains('locked') ? 'Scene unlocked.' : 'Scene locked.');
-        return;
-      }
-      if (sceneButton.matches('[data-scene-move]')) {
-        const cards = $$('[data-scene-card]');
-        const index = cards.indexOf(card);
-        const target = sceneButton.dataset.sceneMove === 'up' ? index - 1 : index + 1;
-        if (target < 0 || target >= cards.length) return;
-        const ids = cards.map(item => item.dataset.sceneCard);
-        [ids[index], ids[target]] = [ids[target], ids[index]];
-        await api(`/api/content/${encodeURIComponent(productionId)}/scenes/reorder`, {
-          method: 'POST', body: JSON.stringify({ sceneIds: ids })
-        });
-        await refreshContentDialog(productionId, 'Timeline order updated. Rebuild before approval.');
-        return;
-      }
-      await api(`/api/content/${encodeURIComponent(productionId)}/scenes/${encodeURIComponent(sceneId)}`, {
-        method: 'PATCH', body: JSON.stringify(sceneFormData(card))
-      });
-      if (sceneButton.matches('[data-scene-save]')) {
-        await refreshContentDialog(productionId, 'Scene draft saved.');
-        return;
-      }
-      if (sceneButton.matches('[data-scene-narration]')) {
-        if (!confirm('Regenerate narration for only this scene? This may consume TTS provider credits; the provider invoice is authoritative.')) return;
-        await api(`/api/content/${encodeURIComponent(productionId)}/scenes/${encodeURIComponent(sceneId)}/narration`, {
-          method: 'POST', body: JSON.stringify({ confirmCost: true })
-        });
-        await refreshContentDialog(productionId, 'Scene narration regenerated. Rebuild the final video when every narration segment is ready.');
-        return;
-      }
-      const estimate = await api(`/api/content/${encodeURIComponent(productionId)}/scenes/${encodeURIComponent(sceneId)}/estimate`);
-      const message = estimate.paid
-        ? `Regenerate only this scene with ${estimate.provider} (${estimate.generatedSeconds}s). This consumes provider credits; the provider invoice is authoritative. Continue?`
-        : 'Regenerate only this scene with the configured image provider? A live image request may consume provider credits. Continue?';
-      if (!confirm(message)) return;
-      await api(`/api/content/${encodeURIComponent(productionId)}/scenes/${encodeURIComponent(sceneId)}/regenerate`, {
-        method: 'POST', body: JSON.stringify({ confirmPaid: estimate.paid })
-      });
-      await refreshContentDialog(productionId, 'Scene regenerated. Rebuild the final video when the timeline is ready.');
-    } catch (error) {
-      showToast(error.message, 'error');
-    }
-    return;
-  }
-
-  const silenceAction = event.target.closest('[data-intentional-silence], [data-require-narration]');
-  if (silenceAction) {
-    const productionId = $('#content-review-form')?.dataset.productionId;
-    if (!productionId) return;
-    const enabled = silenceAction.matches('[data-intentional-silence]');
-    let reason = '';
-    if (enabled) {
-      reason = prompt('Why is this production intentionally silent? This reason is stored with the approval evidence.') || '';
-      if (!reason) return;
-      if (!confirm('Confirm that this production is intentionally silent. Captions and visuals will remain, and approval will record this override.')) return;
-    } else if (!confirm('Require narration again? Approval will be blocked until missing scene narration is regenerated and the video is rebuilt.')) {
-      return;
-    }
-    try {
-      await api(`/api/content/${encodeURIComponent(productionId)}/narration/silence`, {
-        method: 'POST', body: JSON.stringify({ enabled, confirmed: enabled, reason })
-      });
-      await refreshContentDialog(productionId, enabled ? 'Intentional silence recorded. Rebuild before approval.' : 'Narration is required again.');
-    } catch (error) {
-      showToast(error.message, 'error');
-    }
-    return;
-  }
-
-  const rebuildScenes = event.target.closest('[data-rebuild-scenes]');
-  if (rebuildScenes) {
-    const productionId = rebuildScenes.dataset.rebuildScenes;
-    if (confirm('Rebuild a new final MP4 from the current scene timeline? The previous final video will be preserved.')) {
-      try {
-        await api(`/api/content/${encodeURIComponent(productionId)}/scenes/rebuild`, { method: 'POST', body: '{}' });
-        await refreshContentDialog(productionId, 'Final video rebuilt from the repaired timeline. Review it before approval.');
-      } catch (error) {
-        showToast(error.message, 'error');
-      }
-    }
-    return;
-  }
-
   const addSource = event.target.closest('[data-add-provenance-source]');
   if (addSource) {
     const list = $('#provenance-sources');
@@ -1486,14 +1269,6 @@ document.addEventListener('change', event => {
     const input = $('#content-review-form [name="title"]');
     if (title && input) input.value = title;
   }
-  if (event.target.matches('[data-scene-upload]')) {
-    const file = event.target.files?.[0];
-    const card = event.target.closest('[data-scene-card]');
-    const productionId = $('#content-review-form')?.dataset.productionId;
-    if (file && card && productionId) {
-      uploadSceneAsset(productionId, card.dataset.sceneCard, file);
-    }
-  }
 });
 
 $('#generate-button').addEventListener('click', () => $('#generate-dialog').showModal());
@@ -1555,25 +1330,11 @@ $('#strategy-form').addEventListener('submit', async event => {
 
 $('#activate-operator-button').addEventListener('click', async () => {
   if (!$('#strategy-form').reportValidity()) return;
-  await mutate('/api/operator/start', 'POST', strategyFormData('active'), 'Autonomous operator started.').catch(() => {});
+  await mutate('/api/operator/start', 'POST', strategyFormData('active'), 'Strategy activated.').catch(() => {});
 });
 
 $('#pause-operator-button').addEventListener('click', async () => {
-  await mutate('/api/operator/pause', 'POST', {}, 'Autonomous operator paused.').catch(() => {});
-});
-
-$('#cancel-operator-run').addEventListener('click', async event => {
-  const runId = event.currentTarget.dataset.runId;
-  if (runId && confirm('Stop this autonomous run after the current agent stage?')) {
-    await mutate(`/api/operator/runs/${encodeURIComponent(runId)}/cancel`, 'POST', {}, 'Operator stop requested.').catch(() => {});
-  }
-});
-
-$('#resume-operator-run').addEventListener('click', async event => {
-  const runId = event.currentTarget.dataset.runId;
-  if (runId && confirm('Resume this operator run from its saved editorial plan and generation checkpoints?')) {
-    await mutate(`/api/operator/runs/${encodeURIComponent(runId)}/resume`, 'POST', {}, 'Autonomous operator resumed.').catch(() => {});
-  }
+  await mutate('/api/operator/pause', 'POST', {}, 'Strategy paused.').catch(() => {});
 });
 
 $('#generate-form').addEventListener('submit', async event => {
@@ -1605,11 +1366,7 @@ $('#profile-form').addEventListener('submit', async event => {
     await mutate('/api/settings', 'PUT', {
       approval_required: $('#approval-required').checked,
       notification_enabled: $('#notifications-enabled').checked,
-      channel_timezone: values.timezone,
-      video_provider: values.videoProvider,
-      video_generation_mode: values.videoGenerationMode,
-      video_clip_duration: Number(values.videoClipDuration),
-      video_max_generated_seconds: Number(values.videoMaxGeneratedSeconds)
+      channel_timezone: values.timezone
     }, 'Operator settings saved.');
   } catch (_error) { /* toast already shown */ }
 });
