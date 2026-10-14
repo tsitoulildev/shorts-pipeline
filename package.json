@@ -1,25 +1,18 @@
 {
   "name": "youtube-automation-agent",
   "version": "2.10.0",
-  "description": "Shorts Pipeline: an autonomous multi-agent system for original dark-stickman horror YouTube Shorts",
+  "description": "Shorts Pipeline: an autonomous service that makes true-history YouTube Shorts from real sources and real, freely licensed pictures",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "setup": "node setup.js",
     "walkthrough": "node walkthrough.js",
     "scheduler": "node schedules/daily-automation.js",
-    "test": "node test.js && node scripts/test-upload-gate.js && node scripts/test-auth-revoked.js && node scripts/test-scheduler-failfast.js && node scripts/test-gemini-quota-reset.js && node scripts/test-llm-cooldown-gone.js && node scripts/test-hook-echo.js && node scripts/test-writer-rubric.js && node scripts/test-recent-premises.js && node scripts/test-plan-carry.js && node scripts/test-self-duplicate.js && node scripts/test-job-path.js && node scripts/test-backbone-1.js && node scripts/test-prose-quality.js && node scripts/test-readiness-retry.js && node scripts/test-best-of-drafts.js && node scripts/test-db-backup.js && node scripts/test-quota-retry.js && node scripts/test-analytics-unavailable.js && node scripts/test-deploy-scripts.js && node scripts/test-audio-mix.js && node scripts/test-speech-timing.js && node scripts/test-stickman-scenes.js && node scripts/test-stickman-animation.js && node scripts/test-creative-review.js && node scripts/test-telegram-notifier.js && node scripts/test-json-response.js && node scripts/test-provider-redundancy.js && node scripts/test-process-guards.js && node scripts/test-set-cadence.js && node scripts/test-llm-usage.js && node scripts/test-beat-balance.js && node scripts/test-review-flow.js && node scripts/test-approval-duplicate.js && node scripts/test-narration-contract.js && node scripts/test-agent-prompts.js && node scripts/test-logger-errors.js && node scripts/test-dark-history-footage.js && node scripts/test-story-pool.js && node scripts/test-dark-history-writer.js && node scripts/test-dark-history-production.js && node scripts/test-upload-description.js && node scripts/test-dark-history-narration.js && node scripts/test-dark-history-live.js && node scripts/test-dark-history-dhash.js && node scripts/test-ci-workflow.js && node scripts/test-dark-history-footage-fit.js && node scripts/test-dark-history-slots.js && node scripts/test-nvidia-selection.js && node scripts/test-thumbnail-retry.js && node scripts/test-free-first.js && node scripts/test-rate-limiter.js && node scripts/test-yield-stats.js && node scripts/test-evidence-by-code.js && node scripts/test-pool-quarantine.js && node scripts/test-refill-fresh.js && node scripts/test-golden-short.js && node scripts/test-steady-cadence.js && node scripts/test-disputed-claims.js && node scripts/test-writer-attempts.js && node scripts/test-live-slot.js",
-    "agent:strategy": "node agents/content-strategy-agent.js",
-    "agent:script": "node agents/script-writer-agent.js",
-    "agent:thumbnail": "node agents/thumbnail-designer-agent.js",
-    "agent:seo": "node agents/seo-optimizer-agent.js",
-    "agent:production": "node agents/production-management-agent.js",
+    "test": "node test.js && node scripts/test-upload-gate.js && node scripts/test-auth-revoked.js && node scripts/test-scheduler-failfast.js && node scripts/test-gemini-quota-reset.js && node scripts/test-llm-cooldown-gone.js && node scripts/test-readiness-retry.js && node scripts/test-best-of-drafts.js && node scripts/test-db-backup.js && node scripts/test-quota-retry.js && node scripts/test-analytics-unavailable.js && node scripts/test-deploy-scripts.js && node scripts/test-speech-timing.js && node scripts/test-telegram-notifier.js && node scripts/test-json-response.js && node scripts/test-provider-redundancy.js && node scripts/test-process-guards.js && node scripts/test-set-cadence.js && node scripts/test-llm-usage.js && node scripts/test-beat-balance.js && node scripts/test-review-flow.js && node scripts/test-approval-duplicate.js && node scripts/test-logger-errors.js && node scripts/test-dark-history-footage.js && node scripts/test-story-pool.js && node scripts/test-dark-history-writer.js && node scripts/test-dark-history-production.js && node scripts/test-upload-description.js && node scripts/test-dark-history-narration.js && node scripts/test-dark-history-live.js && node scripts/test-dark-history-dhash.js && node scripts/test-ci-workflow.js && node scripts/test-dark-history-footage-fit.js && node scripts/test-dark-history-slots.js && node scripts/test-nvidia-selection.js && node scripts/test-thumbnail-retry.js && node scripts/test-free-first.js && node scripts/test-rate-limiter.js && node scripts/test-yield-stats.js && node scripts/test-evidence-by-code.js && node scripts/test-pool-quarantine.js && node scripts/test-refill-fresh.js && node scripts/test-golden-short.js && node scripts/test-steady-cadence.js && node scripts/test-disputed-claims.js && node scripts/test-writer-attempts.js && node scripts/test-live-slot.js && node scripts/test-no-old-pipeline.js",
     "agent:publishing": "node agents/publishing-scheduling-agent.js",
     "agent:analytics": "node agents/analytics-optimization-agent.js",
     "credentials:setup": "node utils/credential-manager.js setup",
     "lint": "eslint .",
-    "dry-run:horror": "node scripts/horror-short-dry-run.js",
-    "readiness:providers": "node scripts/provider-readiness-report.js",
     "telegram:test": "node scripts/telegram-test.js",
     "readiness:live": "node scripts/live-provider-smoke.js",
     "readiness:production": "node scripts/production-readiness-cli.js"
@@ -34,18 +27,16 @@
     "inquirer": "^8.2.6",
     "node-cron": "^4.6.0",
     "openai": "^6.0.0",
-    "playwright": "^1.54.2",
-    "replicate": "^1.4.0",
+    "sharp": "^0.35.4",
     "sqlite3": "^6.0.1",
-    "winston": "^3.11.0",
-    "sharp": "^0.35.4"
+    "winston": "^3.11.0"
   },
   "optionalDependencies": {
     "ffmpeg-static": "^5.2.0"
   },
   "devDependencies": {
-    "eslint": "9.39.4",
-    "@eslint/js": "9.39.4"
+    "@eslint/js": "9.39.4",
+    "eslint": "9.39.4"
   },
   "engines": {
     "node": ">=18.0.0"

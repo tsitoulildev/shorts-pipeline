@@ -2,7 +2,7 @@
 
 An automation pipeline for short vertical videos (YouTube Shorts). It researches a subject, writes a script, records a narration, renders the video and, only when you allow it, uploads it. It is built to run on **free tiers only**: free LLM providers, free text-to-speech, FFmpeg for all video work, and openly licensed images.
 
-> Status: working software that is still being reshaped. The newest part is the **Dark History** path (true, well documented stories). An older fiction path is still in the code and is being retired.
+> Status: working software. The only production path is **Dark History** (true, well documented stories). The earlier fiction pipeline (stickman horror Shorts, animation, its agents and tests) was removed.
 
 ## What the Dark History path does
 
@@ -15,7 +15,7 @@ Short videos about real, old, well documented events (shipwrecks, disappearances
 5. **Render**: slow zoom and pan (Ken Burns) on the real images, narration, burned-in captions, a thumbnail made from a real image, and a final gate that re-checks every image file, licence and credit before anything can be published. A narration is spoken by a public-domain local voice only. `scripts/dark-history-produce.js` makes one Short by hand for a check (it refuses to run unless `DARK_HISTORY_PRODUCTION_ENABLED=true` and never uploads).
 6. **Attribution.** The Wikipedia credit and the author, licence and URL of every image go, unchanged (line breaks included), into the video description.
 
-The scheduler uses this path only when `DARK_HISTORY_LIVE=true` (off by default). With it on, each Short comes from the story pool, passes the same quality checks as any production plus the documentary gate, and is scheduled by the normal publisher. If a production fails nothing is published and no other kind of Short is made: the story goes back to the pool (rejected after 3 failed attempts), an alert names the cause, and the next scheduler tick tries again. The weekly cadence never outruns the pool: the ready stories are spread over 14 days and an empty pool makes nothing.
+The scheduler makes every Short this way: each Short comes from the story pool, passes the same quality checks as any production plus the documentary gate, and is scheduled by the normal publisher. If a production fails nothing is published and no other kind of Short is made: the story goes back to the pool (rejected after 3 failed attempts), an alert names the cause, and the next scheduler tick tries again. The weekly cadence never outruns the pool: the ready stories are spread over 14 days and an empty pool makes nothing.
 
 ## Requirements
 
@@ -51,10 +51,9 @@ Everything is configured through `.env` (copy `.env.example`; every key is expla
 | `YOUTUBE_EXPECTED_CHANNEL_ID` | **Required before any upload.** The id of the channel the videos must go to. Uploads are refused if it is empty or the authorised account owns another channel. |
 | `YOUTUBE_UPLOAD_ENABLED` | Master switch for uploads. Off unless you turn it on. |
 | `APPROVAL_REQUIRED`, `AUTONOMOUS_MODE`, `AUTOMATION_PAUSED` | Who decides what is published. |
-| `DARK_HISTORY_POOL_ENABLED`, `DARK_HISTORY_DAILY_LLM_CALLS` | The background story research and its daily free-tier call budget. Off by default. |
+| `DARK_HISTORY_DAILY_LLM_CALLS` | The daily free-tier call budget of the background story research (relevance and vision judges). |
 | `DARK_HISTORY_MAX_ATTEMPTS_PER_SLOT` | Attempts in a row per hourly check while the queue is short (default 3, one at a time, the first success ends the check). A rate-limit limiter drops the next check to one attempt. One row per check is stored in `dh_hourly` (see `node scripts/dark-history-report.js 1`). |
 | `DARK_HISTORY_MAX_PER_DAY`, `DARK_HISTORY_FRESH_TARGET`, `DARK_HISTORY_REFILL_BATCH`, `DARK_HISTORY_POOL_LOW_READY` | At most 3 Shorts a day (the pool size never lowers it; an empty pool waits for the refill). The hourly refill researches `DARK_HISTORY_REFILL_BATCH` (12) candidates while fewer than `DARK_HISTORY_FRESH_TARGET` (30) untouched stories are ready. `story_pool_low` is an alert only, below `DARK_HISTORY_POOL_LOW_READY` (7) ready stories. |
-| `DARK_HISTORY_LIVE` | Makes every scheduled Short a Dark History Short (and runs the pool refill). Off by default; switching it back and restarting returns to the old path. |
 | `DARK_HISTORY_VOICE` | The narration voice, a public-domain Piper voice only (`en_US-ljspeech-high` by default). |
 | `DARK_HISTORY_PRODUCTION_ENABLED` | Allows the manual render script to run. Off by default. |
 | `API_KEY` | Protects the local API. Use a long random value. |

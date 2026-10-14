@@ -138,11 +138,10 @@ AUTOMATION_PAUSED=false
 YOUTUBE_REGION=US
 DEFAULT_PRIVACY_STATUS=private
 
-# Horror Stickman free synthetic-media policy
+# Free-media policy
 FREE_MEDIA_ONLY=true
 # Free-first text routing: paid text provider keys in the environment are ignored.
 FREE_LLM_ONLY=true
-LOCAL_STICKMAN_RENDERER=true
 
 # Content Settings
 AUTO_SHORTEN_CONTENT=true
