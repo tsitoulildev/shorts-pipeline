@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const { Logger } = require('../utils/logger');
 const channelIdentity = require('../utils/channel-identity');
-const { isLive, pruneOutput, steadyCadence } = require('../utils/dark-history/live');
+const { isLive, pruneOutput, steadyCadence, maxPerDay } = require('../utils/dark-history/live');
 const { StoryPool } = require('../utils/dark-history/story-pool');
 const { YieldStats } = require('../utils/dark-history/yield-stats');
 
@@ -14,6 +14,8 @@ const MAX_ATTEMPTS_PER_SLOT = () => (Number(process.env.DARK_HISTORY_MAX_ATTEMPT
 const RATE_LIMIT_STOP = 3;
 const RATE_LIMIT_SHARE = 0.15;
 const DEFAULT_QUEUE_AHEAD = 5; // Shorts kept scheduled ahead (the publish cadence guard spaces them 8 h apart: about 40 hours)
+
+const safeJson = text => { try { return JSON.parse(text || '{}'); } catch (_error) { return {}; } };
 
 class DailyAutomation {
   constructor(agents, database, options = {}) {
@@ -374,7 +376,20 @@ class DailyAutomation {
           return false;
         }
       }).length;
-      if (completed >= target) {
+      // Live: production runs AHEAD of publication, so a week of Shorts MADE is not a week of Shorts PUBLISHED. A weekly count of made Shorts stopped production for 41
+      // checks (10-14 15:40 to 10-16) after a catch-up burst filled the week while the queue ran down. What bounds production is the queue below, a runaway guard of
+      // twice the daily maximum in 24 h, and the 8 hour publish gate at upload time.
+      if (isLive()) {
+        const dayRows = await this.db.getAllRows(
+          `SELECT details FROM generation_jobs
+           WHERE status = 'completed' AND created_at >= datetime('now', '-1 day') AND style = 'documentary'`
+        );
+        const madeToday = dayRows.filter(row => ['needs_review', 'approved'].includes((typeof row.details === 'string' ? safeJson(row.details) : row.details || {}).reviewStatus)).length;
+        if (madeToday >= maxPerDay() * 2) {
+          this.lastSkipReason = `runaway guard: ${madeToday} Shorts were made in the last 24 h (limit ${maxPerDay() * 2})`;
+          return false;
+        }
+      } else if (completed >= target) {
         this.lastSkipReason = `weekly target reached (${completed}/${target} Shorts in the last 7 days)`;
         return false;
       }

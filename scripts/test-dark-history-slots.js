@@ -5,14 +5,15 @@ const { DailyAutomation } = require('../schedules/daily-automation');
 
 const silent = { info() {}, warn() {}, error() {}, success() {}, startTimer: () => ({ end() {} }) };
 const HOUR = 3600000;
-const makeScheduler = (lastGeneration, queued = 0, oldCompleted = 0, ready = 42) => {
+const makeScheduler = (lastGeneration, queued = 0, oldCompleted = 0, ready = 42, made = { week: 0, day: 0 }) => {
   const settings = lastGeneration ? { last_content_generation: lastGeneration } : {};
   const db = {
     getChannelStrategy: async () => ({ id: 's', status: 'active', cadence_per_week: 21 }),
     getAllRows: async sql => {
       if (/FROM publish_schedule/.test(sql)) return [{ n: queued }];
       // the week's completed jobs: 16 old stickman Shorts, no Dark History one
-      if (/FROM generation_jobs/.test(sql)) return /style = 'documentary'/.test(sql) ? [] : Array.from({ length: oldCompleted }, () => ({ details: '{"reviewStatus":"approved"}' }));
+      if (/FROM generation_jobs/.test(sql) && /style = 'documentary'/.test(sql)) return Array.from({ length: /-1 day/.test(sql) ? made.day : made.week }, () => ({ details: '{"reviewStatus":"approved"}' }));
+      if (/FROM generation_jobs/.test(sql)) return Array.from({ length: oldCompleted }, () => ({ details: '{"reviewStatus":"approved"}' }));
       return [];
     },
     getSetting: async key => settings[key] ?? null,
@@ -95,6 +96,14 @@ async function main() {
   delete process.env.DARK_HISTORY_QUEUE_AHEAD;
   // Live: the weekly count is the Dark History Shorts only; 16 old stickman Shorts of the last 7 days must not stop production (they did: 16 of 15)
   assert.equal(await makeScheduler(null, 0, 16, 22).shouldGenerateContentToday(), true, 'old Shorts do not count against the week (22 ready stories allow about 11 a week)');
+  // 21 Shorts MADE in the last 7 days (a catch-up burst) must not stop production while the queue is short: this stopped it for 41 checks (10-14 15:40 to 10-16)
+  process.env.DARK_HISTORY_LIVE = 'true';
+  const burst = makeScheduler(null, 4, 0, 42, { week: 21, day: 2 });
+  assert.equal(await burst.shouldGenerateContentToday(), true, 'a full week of made Shorts does not stop production while the queue is below its target');
+  const runaway = makeScheduler(null, 4, 0, 42, { week: 21, day: 6 });
+  assert.equal(await runaway.shouldGenerateContentToday(), false, 'twice the daily maximum in 24 h still stops it');
+  assert.match(runaway.lastSkipReason, /runaway guard/);
+  assert.equal(await makeScheduler(null, 5, 0, 42, { week: 21, day: 1 }).shouldGenerateContentToday(), false, 'a full queue still stops it');
   // Not live: the old pacing gate (21/week = one per 8 h) is unchanged.
   process.env.DARK_HISTORY_LIVE = 'false';
   assert.equal(await makeScheduler(new Date(Date.now() - 7.5 * HOUR).toISOString()).shouldGenerateContentToday(), false);
