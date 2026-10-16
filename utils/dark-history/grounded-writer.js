@@ -125,9 +125,9 @@ function storyForScript(story, script) {
 }
 
 // A source sentence that calls a claim uncertain: a theory, a legend, an allegation, "is said to". Plain "according to" is NOT in this list (an official finding is not a doubt).
-const UNCERTAIN_IN_EVIDENCE = /\b(theor(?:y|ies)|hypothes[ie]s|speculat\w*|alleg\w*|disputed?|contested|controvers\w*|rumou?rs?|legend\w*|folklore|unproven|unverified|purported\w*|supposed(?:ly)?|reportedly|(?:is|are|was|were) said to|believed to|claim(?:s|ed)?|suspect(?:s|ed)?|may have|might have)\b/i;
+const UNCERTAIN_IN_EVIDENCE = /\b(theor(?:y|ies)|hypothes[ie]s|speculat\w*|alleg\w*|disputed?|contested|controvers\w*|rumou?rs?|legend\w*|folklore|unproven|unverified|purported\w*|supposed(?:ly)?|reportedly|(?:is|are|was|were) said to|believed to|claim(?:s|ed)?|suspect(?:s|ed)?|may have|might have|assumed|presum\w*|(?:is|are|was|were) (?:thought|believed) to|probabl[ey]|possibl[ey]|perhaps|appears to|seems to)\b/i;
 // The narration says who holds the claim, or that it is only a claim.
-const ATTRIBUTED_IN_NARRATION = /\b(theor(?:y|ies)|hypothes[ie]s|alleg\w*|disputed?|debated|contested|rumou?rs?|legend\w*|folklore|unproven|purported\w*|supposed(?:ly)?|reportedly|according to|(?:investigators|historians|researchers|experts) (?:think|thought|believe|suspect)|(?:is|are|was|were) said to|(?:he|she|they|it) said|believed (?:to|that|by)|claim(?:s|ed)?|suspect(?:s|ed)?|may have|might have|one account|some (?:historians|researchers|accounts|investigators))\b/i;
+const ATTRIBUTED_IN_NARRATION = /\b(theor(?:y|ies)|hypothes[ie]s|alleg\w*|disputed?|debated|contested|rumou?rs?|legend\w*|folklore|unproven|purported\w*|supposed(?:ly)?|reportedly|according to|(?:investigators|historians|researchers|experts) (?:think|thought|believe|suspect)|(?:is|are|was|were) said to|(?:he|she|they|it) said|believed (?:to|that|by)|claim(?:s|ed)?|suspect(?:s|ed)?|may have|might have|assumed|presum\w*|probabl[ey]|possibl[ey]|perhaps|appears to|seems to|one account|some (?:historians|researchers|accounts|investigators))\b/i;
 
 /**
  * A beat whose own evidence calls the claim a theory, a legend, an allegation or "said to" must carry its own attribution in the narration (who says it,
@@ -267,6 +267,7 @@ function parseBeatReply(reply, named, story, previous) {
     const b = Array.isArray(map) ? map[n - 1] : map[String(n)];
     if (!b || typeof b !== 'object') throw new Error('writer returned no title/beats (beat ' + n + ' missing)');
     if (b.skip === true && othersNarrated + Object.values(out).filter(item => !item.skip).length < 4) throw new Error('writer returned no title/beats (a skip would leave fewer than 4 narrated beats)');
+    if (b.skip !== true && !hasEvidence(b)) throw new Error('writer returned no title/beats (beat ' + n + ' has no evidence ids)');
     out[n] = b.skip === true
       ? { ...previous.beats[n - 1], skip: true, narration: '', evidence: [], evidenceIds: [] }
       : { ...previous.beats[n - 1], skip: false, narration: spokenForm(b.narration), evidenceIds: [].concat(b.evidence_ids || []).map(String), evidence: b.evidence_ids === undefined ? (Array.isArray(b.evidence) ? b.evidence : []).map(e => String(e).trim()).filter(Boolean) : evidenceFromIds(b.evidence_ids, story, n - 1) };
@@ -274,9 +275,14 @@ function parseBeatReply(reply, named, story, previous) {
   return out;
 }
 
+/** A narrated beat of a writer reply names its evidence (ids, or the sentences themselves). */
+const hasEvidence = b => (Array.isArray(b?.evidence_ids) ? b.evidence_ids.length > 0 : (Array.isArray(b?.evidence) ? b.evidence.some(e => String(e).trim()) : false));
+
 function parseDraft(reply, story) {
   const parsed = parseJsonResponse(reply);
   if (!parsed?.title || !Array.isArray(parsed.beats)) throw new Error('writer returned no title/beats');
+  const bare = parsed.beats.findIndex(b => b && b.skip !== true && !hasEvidence(b));
+  if (bare >= 0) throw new Error('writer returned no title/beats (beat ' + (bare + 1) + ' has no evidence ids)');
   const beats = parsed.beats.map((b, i) => (b.skip === true
     ? { heading: story.plan.beats[i]?.heading, skip: true, narration: '', evidence: [], images: story.plan.beats[i]?.images || [] }
     : {
@@ -289,6 +295,21 @@ function parseDraft(reply, story) {
       images: story.plan.beats[i]?.images || []
     }));
   return withSummary({ title: String(parsed.title).trim().slice(0, 100), beats });
+}
+
+const TITLE_STOP = new Set('about after again against among because before between during through under while which would could their there these those other first last into from with without that this than then them they were been being have what when where who whom whose facts story timeline details explained'.split(' '));
+
+/**
+ * A title is a claim too: every content word of it must be in the source article or in the narration (first five letters, so "sinking" matches "sinks"). A title with a word the
+ * source does not have ("Vanished Without a Trace" for a ship that was scrapped) is replaced by the article's own title, never kept and never a reason to lose the Short.
+ */
+function supportedTitle(title, story, narration = '') {
+  const source = (String(story?.plan?.extract || '') + ' ' + narration).toLowerCase();
+  const words = (String(title || '').toLowerCase().match(/[a-z]{5,}/g) || []).filter(w => !TITLE_STOP.has(w));
+  const unsupported = words.filter(w => !source.includes(w.slice(0, 5)));
+  if (!unsupported.length) return { title: String(title).trim(), replaced: false, unsupported: [] };
+  const own = String(story?.plan?.title || '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  return { title: (own || String(title)).slice(0, 100), replaced: Boolean(own), unsupported };
 }
 
 /** Description = a one-line summary + the attribution text UNCHANGED (rejected, never truncated, when it does not fit). */
@@ -383,10 +404,16 @@ async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3
   script.sourceBeatIndexes = script.beats.map((b, i) => (b.skip ? null : i)).filter(i => i !== null);
   script.beats = script.beats.filter(b => !b.skip);
   const used = storyForScript(story, script);
+  const titled = supportedTitle(script.title, used, script.fullScript);
+  if (titled.replaced) {
+    logger?.warn?.(`grounded writer: the title "${script.title}" has words the source does not have (${titled.unsupported.join(', ')}); using "${titled.title}"`);
+    script.metadata = { ...(script.metadata || {}), titleReplaced: { was: script.title, unsupported: titled.unsupported } };
+    script.title = titled.title;
+  }
   script.description = buildDescription(script, used);
   script.attribution = used.attribution;
   script.sourceTitle = story.plan.title;
   return script;
 }
 
-module.exports = { PROMPT_PASSAGE_CHARS, spokenForm, sourceSentences, allowedIn, evidenceFromIds, buildBeatPrompt, parseBeatReply, repairByDeletion, writeGroundedScript, storyForScript, reviewGrounded, buildPrompt, buildDescription, proseIssues, disputedClaimIssues, parseDraft, affectedBeats };
+module.exports = { PROMPT_PASSAGE_CHARS, spokenForm, sourceSentences, allowedIn, evidenceFromIds, buildBeatPrompt, parseBeatReply, repairByDeletion, writeGroundedScript, storyForScript, reviewGrounded, buildPrompt, buildDescription, proseIssues, disputedClaimIssues, supportedTitle, parseDraft, affectedBeats };

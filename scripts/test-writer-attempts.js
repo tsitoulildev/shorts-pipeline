@@ -6,7 +6,7 @@ const { fixtureHttp } = require('./dark-history-probe');
 const { planFootage } = require('../utils/dark-history/footage');
 const { attributionText } = require('../utils/dark-history/attribution');
 const { sentencesOf } = require('../utils/dark-history/fact-check');
-const { writeGroundedScript, buildPrompt, buildBeatPrompt } = require('../utils/dark-history/grounded-writer');
+const { writeGroundedScript, buildPrompt, buildBeatPrompt, parseBeatReply, supportedTitle } = require('../utils/dark-history/grounded-writer');
 
 const words = s => s.split(/\s+/).length;
 const quiet = { info() {}, warn() {} };
@@ -82,6 +82,36 @@ const quiet = { info() {}, warn() {} };
   const third = await writeGroundedScript({ story, llm: cutOff, imageFit, maxRevisions: 0, repair: false, logger: quiet });
   assert.equal(calls, 3, 'asked three times');
   assert.equal(third.beats.length, faithful.length);
+
+  // ---- 3b. a reply whose beat names no evidence is asked again ("no evidence sentences" was the most frequent failure cause on 2026-10-13) ----
+  let draftCalls = 0;
+  const bareThenGood = {
+    generateText: async prompt => {
+      if (/strict fact-checker/.test(prompt)) return JSON.stringify({ unsupported: [] });
+      draftCalls += 1;
+      const beats = faithful.map(b => ({ narration: b.narration, evidence: b.evidence }));
+      if (draftCalls === 1) beats[1] = { narration: faithful[1].narration, evidence_ids: [] };
+      return JSON.stringify({ title: 'The Ship Found Empty', beats });
+    }
+  };
+  const asked = await writeGroundedScript({ story, llm: bareThenGood, imageFit, maxRevisions: 0, repair: false, logger: quiet });
+  assert.equal(draftCalls, 2, 'the bare draft was not reviewed, it was asked for again');
+  assert.equal(asked.beats.length, faithful.length);
+  const previous = { beats: faithful.map(b => ({ ...b, skip: false, evidenceIds: [], images: [] })) };
+  assert.throws(() => parseBeatReply(JSON.stringify({ beats: { 2: { narration: faithful[1].narration, evidence_ids: [] } } }), new Set([2]), story, previous), /no title.beats/);
+  assert.throws(() => parseBeatReply(JSON.stringify({ beats: { 2: { narration: faithful[1].narration } } }), new Set([2]), story, previous), /no title.beats/);
+  assert.ok(parseBeatReply(JSON.stringify({ beats: { 2: { narration: faithful[1].narration, evidence: [faithful[1].evidence[0]] } } }), new Set([2]), story, previous)[2].evidence.length === 1);
+
+  // ---- 3c. a title may only say what the article says: a word the source does not have replaces the title by the article's own title ----
+  const kept = supportedTitle('The Ship Found Empty', story, '');
+  assert.equal(kept.replaced, false);
+  const invented = supportedTitle('Zorbulated Ship Found Empty', story, '');
+  assert.deepEqual([invented.replaced, invented.unsupported, invented.title], [true, ['zorbulated'], 'Mary Celeste']);
+  assert.equal(supportedTitle('Vanished Without a Trace', { plan: { title: 'HMS Repulse (1892)', extract: 'HMS Repulse was a battleship. She was sold for scrap.' } }, '').title, 'HMS Repulse');
+  assert.equal(supportedTitle('Facts and details', { plan: { title: 'X', extract: 'It sank.' } }, '').replaced, false, 'generic words and short words are free');
+  const retitled = await writeGroundedScript({ story, llm: { generateText: async prompt => (/strict fact-checker/.test(prompt) ? JSON.stringify({ unsupported: [] }) : JSON.stringify({ title: 'Zorbulated Ship Found Empty', beats: faithful.map(b => ({ narration: b.narration, evidence: b.evidence })) })) }, imageFit, maxRevisions: 0, repair: false, logger: quiet });
+  assert.equal(retitled.title, 'Mary Celeste');
+  assert.deepEqual(retitled.metadata.titleReplaced.unsupported, ['zorbulated']);
 
   // ---- 4. the prompts carry the source-fidelity rules ----
   const rules = [/ONLY if it is written in the very sentence you cite/, /Never merge two facts/, /young woman.* is not a .teenage girl/, /may have.* stay in the sentence/, /MUST list evidence_ids/];

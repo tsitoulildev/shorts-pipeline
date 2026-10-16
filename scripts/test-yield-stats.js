@@ -9,6 +9,7 @@ const { AITextService } = require('../utils/ai-text-service');
 const { CooldownTracker } = require('../utils/llm-cooldown');
 
 assert.equal(classifyNote('beat 1: amount "Two" is not in its evidence'), 'number word not in evidence');
+assert.equal(classifyNote('beat 4: the source calls this uncertain ("claimed"); say who claims it'), 'uncertain claim stated as fact');
 assert.equal(classifyNote('beat 3: number "24" is not in its evidence'), 'number not in evidence');
 assert.equal(classifyNote('beat 2: evidence not found verbatim in the source: "x"'), 'evidence not verbatim');
 assert.equal(classifyNote('beat 2: the source does not support "A map shows".'), 'sentence not supported');
@@ -39,6 +40,10 @@ assert.deepEqual(causesOf({ message: 'only 3 beats have a picture that shows wha
   await stats.llmEvent({ role: 'judge', provider: 'Mistral ministral-14b', model: 'vision', outcome: 'ok' });
   await stats.jobFailure({ message: 'x', attempts: [{ notes: ['beat 1: amount "Two" is not in its evidence'] }] });
   await stats.jobFailure({ message: 'Unexpected end of JSON input' });
+  // drafts of a Short that was made which the blocking disputed-claim rule sent back: one count per blocked draft
+  assert.equal(await stats.uncertainBlocked([{ failures: ['a claim the source calls uncertain is stated as fact'] }, { failures: ['fact-check failed'] }, { failures: ['a claim the source calls uncertain is stated as fact', 'x'] }]), 2);
+  assert.equal(await stats.uncertainBlocked([{ failures: ['fact-check failed'] }]), 0);
+  assert.equal(await stats.uncertainBlocked(undefined), 0);
   await db.executeQuery("INSERT INTO generation_jobs (id, topic, style, length, source, status, created_at) VALUES ('j1', NULL, 'documentary', 'short', 'manual', 'completed', datetime('now'))");
   await db.executeQuery("INSERT INTO generation_jobs (id, topic, style, length, source, status, created_at) VALUES ('j2', NULL, 'documentary', 'short', 'scheduler', 'failed', datetime('now'))");
   const report = await stats.report(2);
@@ -46,7 +51,8 @@ assert.deepEqual(causesOf({ message: 'only 3 beats have a picture that shows wha
   assert.deepEqual([writer.ok, writer.failed, writer.rate_limited], [2, 1, 1]);
   assert.equal(report.models.find(row => row.role === 'verifier').empty, 1);
   assert.equal(report.models.find(row => row.role === 'judge').ok, 1);
-  assert.deepEqual(report.causes.map(row => row.cause).sort(), ['number word not in evidence', 'unusable reply']);
+  assert.deepEqual(report.causes.map(row => row.cause).sort(), ['number word not in evidence', 'uncertain claim blocked a draft (Short made)', 'unusable reply']);
+  assert.equal(report.causes.find(row => /blocked a draft/.test(row.cause)).n, 2);
   assert.deepEqual(report.jobs.map(row => [row.source, row.completed, row.failed]).sort(), [['manual', 1, 0], ['scheduler', 0, 1]]);
 
   // the text service reports every free-chain result with its role to the sink
