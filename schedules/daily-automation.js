@@ -175,6 +175,13 @@ class DailyAutomation {
       }, { scheduled: false, timezone: 'UTC' })
     );
 
+    // Mondays 07:25 UTC (between the other jobs): the weekly Analytics report, one notification, nothing else changes.
+    this.scheduledTasks.set('dark-history-weekly-report',
+      cron.schedule('25 7 * * 1', async () => {
+        if (this.isEnabled) await this.weeklyAnalyticsReport();
+      }, { scheduled: false, timezone: 'UTC' })
+    );
+
     this.scheduledTasks.forEach((task, name) => {
       task.start();
       this.logger.info(`Started scheduled task: ${name}`);
@@ -340,6 +347,25 @@ class DailyAutomation {
       dedupeMinutes: 1440
     });
     return { day, count, alerted: true };
+  }
+
+  /** Views, retention at 40 % and subscribers per Short against the baseline (read-only on YouTube; the text is kept in the settings and sent once). */
+  async weeklyAnalyticsReport(now = new Date()) {
+    const analytics = this.agents.analytics?.youtubeAnalytics;
+    if (!analytics) return null;
+    try {
+      const { runWeeklyReport } = require('../utils/dark-history/weekly-report');
+      const report = await runWeeklyReport({ db: this.db, analytics, now });
+      const day = now.toISOString().slice(0, 10);
+      await this.db.setSetting(`dh_weekly_report:${day}`, JSON.stringify(report.data), 'Dark History weekly Analytics report');
+      if (typeof this.notify === 'function') {
+        await this.notify({ type: 'dark_history_weekly_report', level: 'info', title: `Dark History weekly report ${day}`, message: report.text, data: report.data, dedupeKey: `dark_history_weekly_report:${day}`, dedupeMinutes: 1440 });
+      }
+      return report;
+    } catch (error) {
+      this.logger.error(`Weekly Analytics report failed: ${error.message}`);
+      return null;
+    }
   }
 
   /** Shorts that are scheduled and not yet published. */

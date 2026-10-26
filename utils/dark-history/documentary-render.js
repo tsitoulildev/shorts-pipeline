@@ -74,6 +74,31 @@ function beatTimeline(beats, window) {
 // (The first version used FontSize 22 / MarginV 210, i.e. 147 px letters 1400 px up, in the top third of the picture.)
 const subtitleFilter = srtPath => `subtitles='${path.resolve(srtPath).replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'")}':force_style='FontName=Arial,FontSize=10,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H30000000,BorderStyle=3,Outline=2,Shadow=0,Alignment=2,MarginV=64'`;
 
+// The title is on screen from the first frame (big, upper third) and fades out at TITLE_SECONDS: people leave in the first 4-9 seconds, and the first frame
+// used to be a photo with a 3-word caption at the bottom. Only the title the Short already has; nothing is added to the story.
+const TITLE_SECONDS = 2.8;
+
+/** The title in at most 3 centred lines of about 18 letters (a 96 px bold letter is about 55 px wide in 1080). */
+function wrapTitle(title, perLine = 18, maxLines = 3, depth = 0) {
+  const words = String(title || '').replace(/[\r\n]+/g, ' ').replace(/[^\x20-\x7e]/g, '').trim().split(/\s+/).filter(Boolean);
+  const lines = [];
+  for (const word of words) {
+    const last = lines[lines.length - 1];
+    if (last !== undefined && (last + ' ' + word).length <= perLine) lines[lines.length - 1] = last + ' ' + word;
+    else lines.push(word);
+  }
+  if (lines.length > maxLines && /:/.test(title) && depth === 0) return wrapTitle(String(title).split(':')[0], perLine, maxLines, 1); // the part before the colon reads better than a cut
+  if (lines.length > maxLines) {
+    const kept = lines.slice(0, maxLines);
+    kept[maxLines - 1] = kept[maxLines - 1].slice(0, perLine - 3).trim() + '...';
+    return kept;
+  }
+  return lines;
+}
+
+/** drawtext for the title card; the text is read from a file (no quoting of the title itself). */
+const titleCardFilter = textFile => `drawtext=textfile='${path.resolve(textFile).replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'")}':fontcolor=white:fontsize=96:line_spacing=14:borderw=7:bordercolor=black:x=(w-text_w)/2:y=300:alpha='if(lt(t,${TITLE_SECONDS - 0.4}),1,max(0,1-(t-${TITLE_SECONDS - 0.4})/0.4))':enable='lt(t,${TITLE_SECONDS})'`;
+
 /**
  * renderDocumentary({ script, imageFolder, narrationPath, outDir }) -> { videoPath, srtPath, duration, segments }.
  * script.beats[i] = { narration, images: [{ file }] } (images are the downloaded records of phase 2).
@@ -109,9 +134,12 @@ async function renderDocumentary({ script, imageFolder, narrationPath, outDir, s
   await fs.writeFile(srtPath, cuesToSrt(buildCaptionCues(words, { start: window.speechStart, end: window.speechEnd })));
 
   const videoPath = path.join(outDir, 'short.mp4');
+  const titleLines = wrapTitle(script.title);
+  const titleFile = path.join(outDir, 'title.txt');
+  if (titleLines.length) await fs.writeFile(titleFile, titleLines.join('\n'));
   await runFFmpeg([
     '-y', '-f', 'concat', '-safe', '0', '-i', list, '-i', narrationPath,
-    '-vf', subtitleFilter(srtPath), '-map', '0:v', '-map', '1:a',
+    '-vf', titleLines.length ? `${subtitleFilter(srtPath)},${titleCardFilter(titleFile)}` : subtitleFilter(srtPath), '-map', '0:v', '-map', '1:a',
     '-c:v', 'libx264', '-preset', process.env.FFMPEG_PRESET || 'veryfast', '-crf', process.env.FFMPEG_CRF || '20',
     '-c:a', 'aac', '-b:a', '160k', '-shortest', '-movflags', '+faststart', videoPath
   ], { timeoutMs: 420000, signal });
@@ -129,4 +157,4 @@ async function renderThumbnail({ imagePath, title, outPath, signal }) {
   return outPath;
 }
 
-module.exports = { renderDocumentary, renderStill, renderThumbnail, kenBurnsFilter, beatTimeline, subtitleFilter, MOTIONS, MAX_IMAGE_SECONDS, W, H };
+module.exports = { renderDocumentary, renderStill, renderThumbnail, kenBurnsFilter, beatTimeline, subtitleFilter, wrapTitle, titleCardFilter, TITLE_SECONDS, MOTIONS, MAX_IMAGE_SECONDS, W, H };

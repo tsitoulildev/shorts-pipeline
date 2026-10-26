@@ -10,6 +10,16 @@ const MAX_ATTEMPTS = 3;
 const QUARANTINE_AFTER = 2;
 const QUARANTINE_HOURS = 24;
 
+// Themes that were watched about 2.5 times as often as ships and polar trips (median 739 views for bog bodies, 278 ships, 154 polar; 3 weeks, small sample):
+// bodies and remains, archaeological finds, unsolved or unexplained cases. Among stories with the SAME number of failed attempts such a story goes first, but
+// never more than 2 of every 3 Shorts, so the channel keeps its variety. Picture and licence rules are not touched: only the order in the pool changes.
+const PRIORITY_THEME = /\b(bog bod(?:y|ies)|mumm(?:y|ies)|skeleton\w*|human remains|bodies|corpse\w*|archaeolog\w*|excavat\w*|burial|tomb|artifact|artefact|unsolved|mystery|disappear\w*|vanish\w*|hoax|unidentified|unexplained)\b/i;
+const themeOf = row => {
+  let extract = '';
+  try { extract = String(JSON.parse(row.plan || '{}').extract || '').slice(0, 700); } catch (_error) { extract = ''; }
+  return PRIORITY_THEME.test(`${row.title || ''} ${extract}`);
+};
+
 /** Days of content the ready stories cover at the given cadence (stories per week). */
 const poolDays = (ready, perWeek) => (perWeek > 0 ? (ready * 7) / perWeek : Infinity);
 
@@ -67,10 +77,23 @@ class StoryPool {
     } catch (_error) { // an SQLite without JSON1: the order without the richness
       row = await this.db.getRow("SELECT * FROM story_pool WHERE status = 'ready' ORDER BY attempts, created_at, rowid LIMIT 1");
     }
+    if (row && !themeOf(row)) row = (await this.preferTheme(row)) || row;
     if (!row) row = await this.db.getRow("SELECT * FROM story_pool WHERE status = 'quarantine' AND used_at <= datetime('now', ?) ORDER BY attempts, used_at, rowid LIMIT 1", ['-' + QUARANTINE_HOURS + ' hours']);
     if (!row) return null;
     const { changes } = await this.db.executeQuery("UPDATE story_pool SET status = 'used', used_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('ready', 'quarantine')", [row.id]);
     return changes ? { ...row, plan: JSON.parse(row.plan), share_alike: Boolean(row.share_alike) } : this.claimNext();
+  }
+
+  /** The first story of the same attempt level that has a priority theme, unless 2 of the last 3 Shorts already had one (variety). null: keep \`row\`. */
+  async preferTheme(row) {
+    try {
+      const recent = await this.db.getAllRows("SELECT title, plan FROM story_pool WHERE status = 'used' ORDER BY used_at DESC, rowid DESC LIMIT 3");
+      if (recent.filter(themeOf).length >= 2) return null;
+      const candidates = await this.db.getAllRows("SELECT * FROM story_pool WHERE status = 'ready' AND COALESCE(attempts, 0) = ? ORDER BY COALESCE(json_extract(plan, '$.richness'), 0) DESC, created_at, rowid LIMIT 60", [row.attempts || 0]);
+      return candidates.find(themeOf) || null;
+    } catch (_error) {
+      return null;
+    }
   }
 
   /**
