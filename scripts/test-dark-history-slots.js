@@ -130,6 +130,8 @@ async function main() {
     assert.equal(fake.attachYieldStats(), 1);
     assert.equal(typeof fake.aiText.statsSink, 'function', 'the text service reports to the yield statistics');
   }
+  // requiring the service above loaded the server's .env (the VM sets DARK_HISTORY_QUEUE_AHEAD=7, which failed the rollout test on 10-26): the queue target is set here
+  process.env.DARK_HISTORY_QUEUE_AHEAD = '5';
   // 21 Shorts MADE in the last 7 days (a catch-up burst) must not stop production while the queue is short: this stopped it for 41 checks (10-14 15:40 to 10-16)
   const burst = makeScheduler(null, 4, 0, 42, { week: 21, day: 2 });
   assert.equal(await burst.shouldGenerateContentToday(), true, 'a full week of made Shorts does not stop production while the queue is below its target');
@@ -137,6 +139,7 @@ async function main() {
   assert.equal(await runaway.shouldGenerateContentToday(), false, 'twice the daily maximum in 24 h still stops it');
   assert.match(runaway.lastSkipReason, /runaway guard/);
   assert.equal(await makeScheduler(null, 5, 0, 42, { week: 21, day: 1 }).shouldGenerateContentToday(), false, 'a full queue still stops it');
+  delete process.env.DARK_HISTORY_QUEUE_AHEAD;
   console.log('dark-history slots: ok');
   process.exit(0);
 }
