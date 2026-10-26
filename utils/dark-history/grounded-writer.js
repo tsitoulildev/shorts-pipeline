@@ -60,6 +60,10 @@ function beatBlock(story, beat, i, shows) {
     + 'ALLOWED in this beat (only what its sentences contain): numbers: ' + (allowed.numbers.join(', ') || 'none') + '; names: ' + (allowed.names.join(', ') || 'none'));
 }
 
+// The viewers leave in the first 4-9 seconds. The 3 most watched Shorts (about 1,000+ views) opened on a find or an event; hooks that only defined or credited their
+// subject had a median of 271 views against 340 for the rest (9 against 26 Shorts: within the noise, so this is a nudge through a scored note, not a gate).
+const HOOK_RULE = 'Open on the unusual event or finding, never on a definition or a credit line. Strong: "A medieval man\'s body, preserved in a Swedish peat bog, was found in 1936." and "Damendorf Man was found on 28 May 1900 in a German bog." Weak (do not write): "HMS Cambrian was a Royal Navy 40-gun frigate launched in 1797." and "The Teatro Yaguez is a historic building operating as a performing arts theater." The strong version must still be stated in the cited sentences, nothing added.';
+
 function buildPrompt(story, brief, previous = null, shows = []) {
   const beats = story.plan.beats.map((beat, i) => beatBlock(story, beat, i, shows)).join('\n\n');
   const lead = sourceSentences(story.plan.extract, PROMPT_LEAD_CHARS).map((sentence, j) => `[L.${j + 1}] ${sentence}`).join('\n');
@@ -71,7 +75,7 @@ HOW IT SHOULD SOUND
 - Skip every passage that is only background (how the ship was built or registered, who owned it) or epilogue (later fate, books and retellings) unless it IS the story. Four to six strong beats beat seven weak ones.
 - Restate the evidence in your own short spoken sentences. Do not copy a long source sentence, and leave out minor detail (registration dates, official titles, ship numbers) unless the story needs it. At most two numbers or dates per beat.
 - Concrete nouns and verbs. No filler and no adjectives such as "shocking", "mysterious" or "chilling". Each beat's narration must be about what its picture shows (the same people, ship, place, document or object), told with facts from that beat's source passage; a vision check rejects a beat whose picture shows something else. If the passage has no fact about what the picture shows, skip the beat. When the picture is a map, a portrait or a document, narrate only what it shows (the place on the map, the person, the document) or skip the beat.
-- Beat 1 is the hook: the single most striking true fact of the whole story in 14 words or fewer (it may come from the article lead). No "imagine", no question to the viewer.
+- Beat 1 is the hook: the single most unusual TRUE fact of the whole story in 14 words or fewer (it may come from the article lead): what was found, what happened or what is still unknown. ${HOOK_RULE}
 
 HARD RULES (a fact-checker rejects the whole script if one is broken):
 - Write exactly ${story.plan.beats.length} entries, one per source passage below, in order. You may skip a passage that adds nothing to the story: write {"skip":true} for it and its picture is left out (skip at most one passage; at least 4 beats must stay narrated, and the story must still make sense in order). ${WORDS.beatMin}-${WORDS.beatMax} spoken words per beat, ${WORDS.min}-${WORDS.max} words in total (the voice speaks about two words a second and the Short must stay under 60 seconds).
@@ -146,6 +150,18 @@ function disputedClaimIssues(script) {
   return notes;
 }
 
+// A hook that only names or describes its subject ("X was a frigate launched in 1797", "X is a theatre", "X was directed by...") and holds no event, finding or superlative.
+const HOOK_EVENT = /\b(found|discover\w*|kill\w*|died|dead|death|sank|sunk|explo\w*|destroy\w*|collaps\w*|vanish\w*|disappear\w*|murder\w*|burn\w*|wreck\w*|lost|hang\w*|buried|fail\w*|erupt\w*|crash\w*|fire|first|only|last|largest|deadliest|worst|never|surviv\w*|escap\w*|accus\w*|charg\w*|trial|hoax|fake|fraud|mystery|unknown|unsolved|unidentified|claim\w*|reached|won|lost)\b/i;
+const HOOK_DEFINITION = /^(?:(?:the|a|an)\s+)?[^,.;]{0,70}?\b(?:is|was|were|are)\s+(?:a|an|the)\s+/i;
+const HOOK_CREDIT = /\b(?:was|were)\s+(?:directed|built|designed|launched|founded|constructed|commissioned|ordered|established|opened|named|laid down)\b/i;
+/** true when the first sentence only defines or credits its subject. */
+function weakHook(sentence) {
+  const text = String(sentence || '').trim();
+  if (!text) return false;
+  const start = text.split(/\s+/).slice(0, 18).join(' ');
+  return (HOOK_DEFINITION.test(start) || HOOK_CREDIT.test(start)) && !HOOK_EVENT.test(text);
+}
+
 /** Documentary prose check (the horror heuristics do not apply: no twist, no cliche list). */
 function proseIssues(script) {
   const notes = [];
@@ -155,6 +171,8 @@ function proseIssues(script) {
   if (total < WORDS.min || total > WORDS.max) notes.push(`the narration is ${total} words; it must be ${WORDS.min}-${WORDS.max}`);
   const hookWords = wordCount(sentencesOf(narrated[0]?.narration)[0]);
   if (hookWords < 4 || hookWords > 16) notes.push(`the hook (first sentence) is ${hookWords} words; make it 5-14 words`);
+  const hook = sentencesOf(narrated[0]?.narration)[0];
+  if (weakHook(hook)) notes.push(`beat 1: the hook only defines or credits its subject ("${String(hook).slice(0, 60)}"); open on the most unusual event, finding or unanswered question that the cited sentences state`);
   if (/^(imagine|picture|what if)\b/i.test(all.trim())) notes.push('do not open with "imagine"/"picture"/"what if"; open on the fact');
   const long = sentencesOf(all).filter(s => wordCount(s) > 24);
   if (long.length) notes.push(`${long.length} sentence(s) run past 24 words ("${long[0].slice(0, 60)}..."); split them`);
@@ -240,6 +258,7 @@ function spokenForm(text) {
  */
 function buildBeatPrompt(story, named, brief, previous, shows) {
   const notes = notesOf(brief);
+  const lead = named.has(1) ? '\nARTICLE LEAD SENTENCES (the hook may cite them as L.n):\n' + sourceSentences(story.plan.extract, PROMPT_LEAD_CHARS).map((sentence, j) => '[L.' + (j + 1) + '] ' + sentence).join('\n') + '\n' : '';
   const blocks = [...named].sort((a, b) => a - b).map(n => {
     const mine = notes.filter(note => new RegExp('^beat ' + n + '(?![0-9])', 'i').test(note) || (n === 1 && /^the hook\b/i.test(note)));
     const before = previous.beats[n - 1];
@@ -252,7 +271,8 @@ function buildBeatPrompt(story, named, brief, previous, shows) {
   return 'You are fixing single beats of the narration of a true-story YouTube Short about "' + story.plan.title + '". The voice is a calm documentary narrator.\n\n'
     + (othersNarrated < 4 ? 'You may NOT skip a beat in this request: only ' + othersNarrated + ' other beats are narrated and at least 4 must be. ' : 'You may skip a beat (write {"skip":true}) only if its source sentences hold nothing about what the picture shows. ')
     + 'Rules: ' + SOURCE_FIDELITY + ' Narrate ONLY what the cited source sentences state; every number, year, name and count must be in a sentence you cite (see ALLOWED), numbers as digits; ' + WORDS.beatMin + '-' + WORDS.beatMax + ' spoken words per beat; short sentences, no semicolons or dashes, plain ASCII, past tense; the narration must be about what the beat\'s picture shows, or write {"skip":true} for the beat. Cite 1-3 sentence ids per beat; you copy nothing, the program copies the sentences.\n\n'
-    + 'THE REST OF THE SCRIPT (read only, do not change):\n' + rest + '\n\n' + blocks + '\n\n'
+    + (named.has(1) ? HOOK_RULE + ' ' : '')
+    + 'THE REST OF THE SCRIPT (read only, do not change):\n' + rest + '\n' + lead + '\n' + blocks + '\n\n'
     + 'Return JSON only, with exactly the beats above: {"beats":{"' + [...named].sort((a, b) => a - b)[0] + '":{"narration":"","evidence_ids":["' + [...named].sort((a, b) => a - b)[0] + '.1"]}}}';
 }
 
@@ -389,4 +409,4 @@ async function writeGroundedScript({ story, llm, logger = null, maxRevisions = 3
   return script;
 }
 
-module.exports = { PROMPT_PASSAGE_CHARS, spokenForm, sourceSentences, allowedIn, evidenceFromIds, buildBeatPrompt, parseBeatReply, repairByDeletion, writeGroundedScript, storyForScript, reviewGrounded, buildPrompt, buildDescription, proseIssues, disputedClaimIssues, parseDraft, affectedBeats };
+module.exports = { PROMPT_PASSAGE_CHARS, spokenForm, sourceSentences, allowedIn, evidenceFromIds, buildBeatPrompt, parseBeatReply, repairByDeletion, writeGroundedScript, storyForScript, reviewGrounded, buildPrompt, buildDescription, proseIssues, disputedClaimIssues, parseDraft, affectedBeats, weakHook, HOOK_RULE };
