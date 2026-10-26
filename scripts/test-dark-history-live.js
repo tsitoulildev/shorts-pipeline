@@ -401,6 +401,7 @@ function makeLlm(mode = { writer: 'ok' }) {
       const job = await db.createGenerationJob({ topic: `done ${i}`, style: 'documentary', length: 'short', source: 'scheduler' });
       await db.updateGenerationJob(job.id, { status: 'completed', details: { reviewStatus: 'approved' } });
     }
+    await db.executeQuery("UPDATE generation_jobs SET created_at = datetime('now', '-3 days') WHERE status = 'completed'"); // made over the week, not in the last 24 h (the runaway guard has its own test)
     const stored = {};
     const dbFor = () => Object.assign(Object.create(db), {
       getChannelStrategy: async () => ({ status: 'active', cadence_per_week: 21 }),
