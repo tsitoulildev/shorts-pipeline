@@ -73,7 +73,7 @@ function buildProductionData({ id = `prod_${Date.now()}_${crypto.randomBytes(5).
     thumbnail: { path: result.thumbnailPath, generatedWith: 'documentary-real-image', productionReady: true, concept: { source: 'first beat image' } },
     seo: result.seo,
     assets: {
-      script: { sections: script.beats.length },
+      script: { sections: script.beats.length, hookFirst: true }, // made with the hook-first rule and the title card: the weekly report compares these Shorts with the baseline
       thumbnail: { path: result.thumbnailPath, generatedWith: 'documentary-real-image', productionReady: true, dimensions: { width: 1280, height: 720 } },
       audio,
       captions: { path: result.render.srtPath, format: 'srt' },

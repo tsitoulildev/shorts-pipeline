@@ -82,6 +82,14 @@ async function makeImage(file, width, height, index = 0) {
   assert.ok(fs.existsSync(result.thumbnailPath) && fs.statSync(result.thumbnailPath).size > 2000, 'thumbnail from the real image exists');
   assert.ok(fs.readFileSync(path.join(dir, 'out', 'captions.srt'), 'utf8').includes('ship'), 'captions carry the narration');
 
+  // The title is on the very first frame (big white letters in the upper third) and gone after TITLE_SECONDS: count white pixels in that band at 0.4 s and at 4.5 s.
+  const whitePixels = t => {
+    const raw = require('child_process').execFileSync(require('../utils/ffmpeg').getFFmpegPath(), ['-v', 'error', '-ss', String(t), '-i', result.render.videoPath, '-frames:v', '1', '-vf', 'crop=1080:520:0:250,format=gray', '-f', 'rawvideo', '-'], { maxBuffer: 1 << 26 });
+    return [...raw].filter(v => v > 240).length;
+  };
+  assert.ok(whitePixels(0.4) > 8000, 'the title card is visible on the first frame');
+  assert.ok(whitePixels(4.5) < 1500, 'and it is gone after a few seconds');
+
   // Ken Burns really moves: a mid-clip frame differs from a frame near the end of the same clip.
   const seg = result.render.segments[0];
   const frame = async (t, name) => { const f = path.join(dir, name); await runFFmpeg(['-y', '-ss', String(t), '-i', seg.clip, '-frames:v', '1', '-update', '1', f]); return crypto.createHash('md5').update(fs.readFileSync(f)).digest('hex'); };
