@@ -394,7 +394,10 @@ class DailyAutomation {
         `SELECT details FROM generation_jobs
          WHERE status = 'completed' AND created_at >= datetime('now', '-1 day') AND style = 'documentary'`
       );
-      const madeToday = dayRows.filter(row => ['needs_review', 'approved'].includes((typeof row.details === 'string' ? safeJson(row.details) : row.details || {}).reviewStatus)).length;
+      const madeToday = dayRows.filter(row => {
+        const details = typeof row.details === 'string' ? safeJson(row.details) : (row.details || {});
+        return ['needs_review', 'approved'].includes(details.reviewStatus);
+      }).length;
       if (madeToday >= maxPerDay() * 2) {
         this.lastSkipReason = `runaway guard: ${madeToday} Shorts were made in the last 24 h (limit ${maxPerDay() * 2})`;
         return false;
