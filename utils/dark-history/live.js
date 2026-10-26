@@ -1,6 +1,5 @@
 // Dark History live path: pool story -> grounded script -> documentary Short -> a production record that the existing
-// quality checks, review, schedule and publisher already understand. Everything here is behind DARK_HISTORY_LIVE
-// (default false); with the flag off nothing in this file is called and the old path runs exactly as before.
+// quality checks, review, schedule and publisher already understand. It is the only production path of the service.
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -16,9 +15,6 @@ const { storyReadiness } = require('./readiness');
 const OUTPUT_DIR = path.join(__dirname, '..', '..', 'data', 'dark-history-output');
 const OUTPUT_KEEP_DAYS = 14;
 const PIPELINE = 'dark-history';
-
-/** The switch. Only the exact word "true" turns the Dark History path on; anything else (unset, "1", "yes") leaves it off. */
-const isLive = (env = process.env) => String(env.DARK_HISTORY_LIVE || '').trim().toLowerCase() === 'true';
 
 /** A job or production made by this path (also read by the guards that keep it away from the old resume code). */
 const isDocumentary = record => record?.pipeline === PIPELINE || record?.details?.pipeline === PIPELINE || record?.strategy?.pipeline === PIPELINE;
@@ -73,7 +69,7 @@ function buildProductionData({ id = `prod_${Date.now()}_${crypto.randomBytes(5).
     thumbnail: { path: result.thumbnailPath, generatedWith: 'documentary-real-image', productionReady: true, concept: { source: 'first beat image' } },
     seo: result.seo,
     assets: {
-      script: { sections: script.beats.length },
+      script: { sections: script.beats.length, hookFirst: true }, // made with the hook-first rule and the title card: the weekly report compares these Shorts with the baseline
       thumbnail: { path: result.thumbnailPath, generatedWith: 'documentary-real-image', productionReady: true, dimensions: { width: 1280, height: 720 } },
       audio,
       captions: { path: result.render.srtPath, format: 'srt' },
@@ -193,4 +189,4 @@ async function steadyCadence(pool, perWeek) {
   return { ...status, empty: status.ready === 0, perWeek: Math.min(perWeek, maxPerDay() * 7) };
 }
 
-module.exports = { isLive, isDocumentary, buildProductionData, produceFromPool, releaseAfterFailure, pruneOutput, steadyCadence, maxPerDay, PIPELINE, OUTPUT_DIR, OUTPUT_KEEP_DAYS };
+module.exports = { isDocumentary, buildProductionData, produceFromPool, releaseAfterFailure, pruneOutput, steadyCadence, maxPerDay, PIPELINE, OUTPUT_DIR, OUTPUT_KEEP_DAYS };

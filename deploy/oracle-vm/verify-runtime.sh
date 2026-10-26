@@ -59,7 +59,7 @@ if (health.status !== 'healthy' || health.initialized !== true || health.setupRe
   })}`);
 }
 
-const expectedAgents = ['strategy', 'scriptWriter', 'thumbnailDesigner', 'seoOptimizer', 'production', 'publishing', 'analytics'];
+const expectedAgents = ['publishing', 'analytics'];
 const agents = new Set(Array.isArray(health.agents) ? health.agents : []);
 const missingAgents = expectedAgents.filter(name => !agents.has(name));
 if (missingAgents.length) throw new Error(`missing initialized agents: ${missingAgents.join(', ')}`);

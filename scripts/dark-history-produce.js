@@ -13,7 +13,7 @@ async function main() {
     process.exit(2);
   }
   const { AITextService } = require('../utils/ai-text-service');
-  const { AIVideoGenerator } = require('../utils/ai-video-generator');
+  const { LocalTts } = require('../utils/local-tts');
   const { makeLlmJudge } = require('../utils/dark-history/relevance-judge');
   const { planFootage } = require('../utils/dark-history/footage');
   const { attributionText } = require('../utils/dark-history/attribution');
@@ -52,7 +52,7 @@ async function main() {
   story = fitted;
   const script = await writeGroundedScript({ story, llm, logger: console });
   console.log(`Beats narrated: ${script.beats.length} of ${plan.beats.length} (skipped: ${plan.beats.filter((_, i) => !script.sourceBeatIndexes.includes(i)).map(b => b.heading).join(", ") || "none"})`);
-  const video = new AIVideoGenerator({});
+  const video = new LocalTts();
   const result = await produceDocumentaryShort({ story, script, workDir: outDir, narrate: makeNarrator({ generator: video }) });
 
   const report = [

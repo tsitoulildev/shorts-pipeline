@@ -7,7 +7,7 @@
  * The expected channel id comes from the environment (`YOUTUBE_EXPECTED_CHANNEL_ID` in .env), not from the repository.
  * It is REQUIRED: with no id configured the guard refuses (CHANNEL_NOT_CONFIGURED) instead of letting an upload through.
  */
-const channelIdentity = require('../config/channel-identity.json');
+const channelIdentity = require('./channel-identity');
 
 function expectedChannelId(env = process.env, identity = channelIdentity) {
   const value = String(env.YOUTUBE_EXPECTED_CHANNEL_ID || identity?.youtubeChannelId || '').trim(); // identity: optional override for tests/forks

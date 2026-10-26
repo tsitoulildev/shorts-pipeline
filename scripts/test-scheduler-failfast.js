@@ -3,7 +3,6 @@
 // generation job existed, no alert reached the owner for ~20 hours, and the real cause was buried.
 const assert = require('node:assert/strict');
 const { DailyAutomation } = require('../schedules/daily-automation');
-const { AutonomousChannelOperator } = require('../utils/autonomous-channel-operator');
 const { OperatorService } = require('../utils/operator-service');
 const { ProductionReadinessService } = require('../utils/production-readiness-service');
 const { PublishingSchedulingAgent } = require('../agents/publishing-scheduling-agent');
@@ -14,13 +13,13 @@ const EXPECTED_CHANNEL = 'UC' + 'a'.repeat(22); // fake id, supplied through the
 process.env.YOUTUBE_EXPECTED_CHANNEL_ID = EXPECTED_CHANNEL;
 const HOUR = 3600000;
 
-function makeDb({ strategyStatus = 'active', lastGeneration = null } = {}) {
+function makeDb({ strategyStatus = 'active', lastGeneration = null, queued = 0 } = {}) {
   const settings = {};
   if (lastGeneration) settings.last_content_generation = lastGeneration;
   return {
     settings,
     getChannelStrategy: async () => ({ id: 's1', status: strategyStatus, cadence_per_week: 21 }),
-    getAllRows: async sql => (/queued/.test(sql) ? (settings.__busy ? [{ busy: 1 }] : []) : []),
+    getAllRows: async sql => (/queued/.test(sql) ? (settings.__busy ? [{ busy: 1 }] : []) : /FROM publish_schedule/.test(sql) ? [{ n: queued }] : []),
     getSetting: async key => (key in settings ? settings[key] : null),
     setSetting: async (key, value) => { settings[key] = value; },
     executeQuery: async () => {},
@@ -31,6 +30,7 @@ function makeDb({ strategyStatus = 'active', lastGeneration = null } = {}) {
 function makeScheduler(db, options) {
   const scheduler = new DailyAutomation({}, db, options);
   scheduler.logger = silent;
+  scheduler.storyPool = { status: async () => ({ ready: 10 }) }; // ten stories ready: the pool is not what these tests are about
   return scheduler;
 }
 
@@ -38,14 +38,6 @@ function blockedError() {
   const error = new Error('Automated generation is blocked by the production readiness gate because blocking checks failed: youtube_access.');
   error.code = 'READINESS_BLOCKED';
   return error;
-}
-
-async function waitFor(condition, label) {
-  for (let i = 0; i < 200; i++) {
-    if (condition()) return;
-    await new Promise(resolve => setTimeout(resolve, 5));
-  }
-  throw new Error(`timed out waiting for ${label}`);
 }
 
 async function testSchedulerSelfHealsAndAlertsOnce() {
@@ -93,11 +85,12 @@ async function testSkipReasonsAreTrue() {
   assert.equal(await inactive.shouldGenerateContentToday(), false);
   assert.match(inactive.lastSkipReason, /strategy is not active/);
 
-  const recent = makeScheduler(makeDb({ lastGeneration: new Date(Date.now() - HOUR).toISOString() }), {});
-  assert.equal(await recent.shouldGenerateContentToday(), false);
-  assert.match(recent.lastSkipReason, /pacing: next Short is due in [67]\.\d h/);
+  // Dark History produces ahead: a full queue is the only reason to wait, and the reason says so
+  const full = makeScheduler(makeDb({ queued: 5 }), {});
+  assert.equal(await full.shouldGenerateContentToday(), false);
+  assert.match(full.lastSkipReason, /queue full: 5 Shorts are scheduled \(target 5/);
 
-  const due = makeScheduler(makeDb({ lastGeneration: new Date(Date.now() - 9 * HOUR).toISOString() }), {});
+  const due = makeScheduler(makeDb({ queued: 2 }), {});
   assert.equal(await due.shouldGenerateContentToday(), true);
   assert.equal(due.lastSkipReason, null);
 }
@@ -148,57 +141,6 @@ async function testNotifierDedupe() {
   assert.equal(await service.notify({ type: 'x', title: 't', message: 'm' }) !== null, true, 'no dedupeKey: always delivered');
   stored['notify_last:k1'] = new Date(Date.now() - 7 * HOUR).toISOString();
   assert.equal(await service.notify(alert) !== null, true, 'after the window the alert is sent again');
-}
-
-function makeOperatorDb(runs) {
-  return {
-    getActiveOperatorRun: async () => null,
-    createOperatorRun: async () => { runs.r1 = { id: 'r1', status: 'queued', generatedJobs: [] }; return { ...runs.r1 }; },
-    getOperatorRun: async id => (runs[id] ? { ...runs[id] } : null),
-    updateOperatorRun: async (id, changes) => { runs[id] = { ...runs[id], ...changes }; return runs[id]; },
-    createContentIdea: async () => ({ id: 'idea1' }),
-    updateContentIdea: async () => {},
-    getGenerationJob: async () => null
-  };
-}
-
-const plan = [{ topic: 'A door that was never there', angle: 'a', format: 'story', length: 'short', rationale: 'r', pillar: 'p', sourceUrls: [] }];
-
-async function testOperatorKeepsTheCause() {
-  const runs = {};
-  const notes = [];
-  const failing = new AutonomousChannelOperator(makeOperatorDb(runs), {
-    researchAndPlan: async () => ({ research: {}, plan }),
-    startGenerationJob: async () => { throw new Error('Generation is busy (1/1 active jobs). Try again when the current job finishes.'); },
-    waitForGenerationJob: async () => { throw new Error('unreachable'); },
-    notify: async n => { notes.push(n); },
-    requiresHumanApproval: async () => false
-  });
-  failing.logger = silent;
-  await failing.start({ id: 's1', status: 'active' });
-  await waitFor(() => notes.length === 1, 'the failure notification');
-  assert.equal(runs.r1.status, 'failed');
-  assert.match(runs.r1.error, /Every planned video failed during generation: Generation is busy/, 'the run must keep the real cause');
-  assert.equal(notes[0].type, 'autonomous_run_failure', 'a run that produced nothing is not "completed"');
-  assert.equal(notes[0].level, 'error');
-  assert.match(notes[0].message, /Cause: Generation is busy/);
-  assert.match(notes[0].dedupeKey, /^autonomous_run_failure:/);
-
-  const okRuns = {};
-  const okNotes = [];
-  const succeeding = new AutonomousChannelOperator(makeOperatorDb(okRuns), {
-    researchAndPlan: async () => ({ research: {}, plan }),
-    startGenerationJob: async () => ({ id: 'j1', status: 'completed', production_id: 'p1', details: { reviewStatus: 'approved' } }),
-    waitForGenerationJob: async () => { throw new Error('unreachable'); },
-    notify: async n => { okNotes.push(n); },
-    requiresHumanApproval: async () => false
-  });
-  succeeding.logger = silent;
-  await succeeding.start({ id: 's1', status: 'active' });
-  await waitFor(() => okNotes.length === 1, 'the success notification');
-  assert.equal(okRuns.r1.status, 'completed');
-  assert.equal(okNotes[0].type, 'autonomous_run_complete');
-  assert.equal(okNotes[0].title, 'Autonomous plan completed');
 }
 
 async function testChannelGuard() {
@@ -297,7 +239,6 @@ async function main() {
   await testSkipReasonsAreTrue();
   await testStallWatchdog();
   await testNotifierDedupe();
-  await testOperatorKeepsTheCause();
   await testChannelGuard();
   await testPublishingChecksTheChannelBeforeUploading();
   console.log('Scheduler fail-fast and alerts: PASS');

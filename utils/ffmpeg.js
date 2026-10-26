@@ -104,39 +104,7 @@ async function getMediaDuration(filePath) {
   throw new Error(`Could not determine media duration for ${filePath}`);
 }
 
-/**
- * Measure overall loudness with FFmpeg's volumedetect filter.
- * Returns { meanVolume, maxVolume } in dBFS (silence is about -91 dB).
- */
-async function getAudioLevels(filePath, options = {}) {
-  let stderr = '';
-  try {
-    const result = await runFFmpeg(
-      ['-hide_banner', '-nostats', '-i', filePath, '-vn', '-af', 'volumedetect', '-f', 'null', '-'],
-      { timeoutMs: options.timeoutMs || 120000, signal: options.signal }
-    );
-    stderr = String(result?.stderr || '');
-  } catch (error) {
-    if (error?.code === 'JOB_CANCELLED' || error?.code === 'FFMPEG_TIMEOUT') throw error;
-    stderr = String(error?.stderr || '');
-  }
-  const read = label => {
-    const match = stderr.match(new RegExp(`${label}:\\s*(-?\\d+(?:\\.\\d+)?|-inf)\\s*dB`, 'i'));
-    if (!match) return null;
-    return match[1].toLowerCase() === '-inf' ? -Infinity : Number(match[1]);
-  };
-  const meanVolume = read('mean_volume');
-  const maxVolume = read('max_volume');
-  if (meanVolume === null || maxVolume === null) {
-    throw new Error(`Could not measure audio levels for ${filePath}`);
-  }
-  return { meanVolume, maxVolume };
-}
-
-/**
- * Stream facts from FFmpeg's own header dump (works with ffmpeg-static, which
- * ships without ffprobe): video codec, resolution, frame rate, audio presence.
- */
+/** Streams of a media file (video size and fps, audio present), from the ffmpeg banner. */
 async function probeMediaStreams(filePath, options = {}) {
   let stderr = '';
   try {
@@ -158,36 +126,6 @@ async function probeMediaStreams(filePath, options = {}) {
   };
 }
 
-/**
- * Find fully black stretches (encoder/assembly failures), not dark artwork.
- * The pixel threshold is strict so the deliberately dark Dark Stickman palette
- * is not mistaken for missing video.
- */
-async function detectBlackSegments(filePath, options = {}) {
-  const minDuration = Number(options.minDuration || 1);
-  const pixelThreshold = Number(options.pixelThreshold || 0.02);
-  let stderr = '';
-  try {
-    const result = await runFFmpeg([
-      '-hide_banner', '-nostats', '-i', filePath, '-an',
-      '-vf', `blackdetect=d=${minDuration}:pic_th=0.98:pix_th=${pixelThreshold}`,
-      '-f', 'null', '-'
-    ], { timeoutMs: options.timeoutMs || 180000, signal: options.signal });
-    stderr = String(result?.stderr || '');
-  } catch (error) {
-    if (error?.code === 'JOB_CANCELLED' || error?.code === 'FFMPEG_TIMEOUT') throw error;
-    stderr = String(error?.stderr || '');
-    if (!/blackdetect|Output #0|frame=/.test(stderr)) throw error;
-  }
-  const segments = [];
-  const pattern = /black_start:\s*([\d.]+)\s+black_end:\s*([\d.]+)\s+black_duration:\s*([\d.]+)/g;
-  let match;
-  while ((match = pattern.exec(stderr))) {
-    segments.push({ start: Number(match[1]), end: Number(match[2]), duration: Number(match[3]) });
-  }
-  return segments;
-}
-
 function ffmpegInstallHint() {
   const hints = {
     win32: 'winget install Gyan.FFmpeg (then restart your terminal)',
@@ -199,4 +137,4 @@ function ffmpegInstallHint() {
   return `FFmpeg not found. Install it with: ${platformHint} — or run "npm install" again to fetch the bundled ffmpeg-static binary, or set FFMPEG_PATH to your ffmpeg executable.`;
 }
 
-module.exports = { getFFmpegPath, getFFprobePath, getMediaDuration, getAudioLevels, probeMediaStreams, detectBlackSegments, checkFFmpeg, runFFmpeg, ffmpegInstallHint };
+module.exports = { getFFmpegPath, getFFprobePath, getMediaDuration, probeMediaStreams, checkFFmpeg, runFFmpeg, ffmpegInstallHint };

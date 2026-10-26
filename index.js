@@ -6,22 +6,14 @@ const fs = require('fs').promises;
 const { Logger } = require('./utils/logger');
 const { installProcessGuards } = require('./utils/process-guards');
 const { Database } = require('./database/db');
+const { LocalTts } = require('./utils/local-tts');
 const { CredentialManager } = require('./utils/credential-manager');
-const { ContentStrategyAgent } = require('./agents/content-strategy-agent');
-const { ScriptWriterAgent } = require('./agents/script-writer-agent');
-const { ThumbnailDesignerAgent } = require('./agents/thumbnail-designer-agent');
-const { SEOOptimizerAgent } = require('./agents/seo-optimizer-agent');
-const { ProductionManagementAgent } = require('./agents/production-management-agent');
 const { PublishingSchedulingAgent } = require('./agents/publishing-scheduling-agent');
 const { AnalyticsOptimizationAgent } = require('./agents/analytics-optimization-agent');
 const { DailyAutomation } = require('./schedules/daily-automation');
 const { OperatorService } = require('./utils/operator-service');
-const { reviewScript, reviewedScriptLoop } = require('./utils/creative-review');
-const { AutonomousChannelOperator } = require('./utils/autonomous-channel-operator');
 const { ProductionReadinessService } = require('./utils/production-readiness-service');
-const { GenerationRecoveryService, GENERATION_STAGES } = require('./utils/generation-recovery-service');
 const { ProvenanceService } = require('./utils/provenance-service');
-const { SceneRepairService } = require('./utils/scene-repair-service');
 const { AudienceEngagementService } = require('./utils/audience-engagement-service');
 const { GrowthExperimentService } = require('./utils/growth-experiment-service');
 const { AITextService } = require('./utils/ai-text-service');
@@ -29,7 +21,7 @@ const { AgentContractService } = require('./utils/agent-contract-service');
 const { DiscoverabilityService } = require('./utils/discoverability-service');
 const { resolveControlState, publicationState, recordUploadAuthorization } = require('./utils/publishing-policy');
 const { YieldStats } = require('./utils/dark-history/yield-stats');
-const { isLive, isDocumentary, produceFromPool, releaseAfterFailure, PIPELINE: DOCUMENTARY_PIPELINE } = require('./utils/dark-history/live');
+const { produceFromPool, releaseAfterFailure, PIPELINE: DOCUMENTARY_PIPELINE } = require('./utils/dark-history/live');
 const { StoryPool } = require('./utils/dark-history/story-pool');
 const { version } = require('./package.json');
 const channelIdentity = require('./utils/channel-identity');
@@ -46,11 +38,8 @@ class YouTubeAutomationAgent {
     this.activeJobs = new Map();
     this.jobAbortControllers = new Map();
     this.operator = null;
-    this.autonomous = null;
     this.readiness = null;
-    this.recovery = null;
     this.provenance = null;
-    this.scenes = null;
     this.engagement = null;
     this.experiments = null;
     this.discoverability = null;
@@ -78,27 +67,10 @@ class YouTubeAutomationAgent {
           'Productions created before this time predate the audio_mix, character, variety and creative_review evidence gates'
         );
       }
-      this.recovery = new GenerationRecoveryService(this.db, {
-        logger: this.logger,
-        updateJobStage: (...args) => this.updateJobStage(...args)
-      });
       this.operator = new OperatorService(this.db);
       this.provenance = new ProvenanceService(this.db);
       this.discoverability = new DiscoverabilityService(this.db, { logger: this.logger });
-      this.autonomous = new AutonomousChannelOperator(this.db, {
-        researchAndPlan: strategy => {
-          if (!this.agents.strategy) throw new Error('The strategy agent is not configured');
-          return this.agents.strategy.researchAndPlanChannel(strategy);
-        },
-        startGenerationJob: input => this.startGenerationJob(input),
-        resumeGenerationJob: (jobId, options) => this.resumeGenerationJob(jobId, options),
-        waitForGenerationJob: jobId => this.waitForGenerationJob(jobId),
-        cancelGenerationJob: (jobId, reason) => this.cancelGenerationJob(jobId, reason),
-        notify: notification => this.operator.notify(notification),
-        isAutomationPaused: async () => (await resolveControlState(this.db)).automationPaused,
-        requiresHumanApproval: async () => (await resolveControlState(this.db)).approvalRequired
-      });
-      
+
       // Load credentials
       this.logger.info('Loading credentials...');
       this.credentials = new CredentialManager();
@@ -118,11 +90,6 @@ class YouTubeAutomationAgent {
       // Initialize agents
       this.logger.info('Initializing agents...');
       await this.initializeAgents();
-      this.scenes = this.agents.production?.sceneRepair || new SceneRepairService(
-        this.db,
-        this.agents.production?.aiVideoGenerator,
-        { logger: this.logger }
-      );
       this.engagement = new AudienceEngagementService(
         this.db,
         this.credentials,
@@ -136,9 +103,6 @@ class YouTubeAutomationAgent {
         { logger: this.logger }
       );
 
-      // Show which pipeline stages will run for real vs. be simulated
-      await this.logCapabilitySummary();
-      
       this.attachYieldStats();
 
       // Setup API endpoints
@@ -152,6 +116,7 @@ class YouTubeAutomationAgent {
         engagement: this.engagement,
         experiments: this.experiments,
         readiness: this.readiness,
+        aiText: this.aiText,
         notify: notification => this.operator.notify(notification)
       });
       await this.scheduler.initialize();
@@ -166,10 +131,6 @@ class YouTubeAutomationAgent {
         `approvalRequired=${control.approvalRequired} (${control.sources.approvalRequired}) ` +
         `paused=${control.automationPaused} (${control.sources.automationPaused})`
       );
-      if (!control.automationPaused) {
-        await this.resumeInterruptedAutonomousWork('startup');
-      }
-      
       this.isInitialized = true;
       this.logger.success('YouTube Automation Agent initialized successfully!');
       
@@ -181,17 +142,14 @@ class YouTubeAutomationAgent {
   }
 
   async initializeAgents() {
+    // Dark History needs a text service (the grounded writer and the judges) and a local narration command; the two agents below publish and measure.
+    this.aiText = new AITextService(this.credentials?.credentials || {});
+    this.tts = new LocalTts();
     this.agents = {
-      strategy: new ContentStrategyAgent(this.db, this.credentials),
-      scriptWriter: new ScriptWriterAgent(this.db, this.credentials),
-      thumbnailDesigner: new ThumbnailDesignerAgent(this.db, this.credentials),
-      seoOptimizer: new SEOOptimizerAgent(this.db, this.credentials),
-      production: new ProductionManagementAgent(this.db, this.credentials),
       publishing: new PublishingSchedulingAgent(this.db, this.credentials),
       analytics: new AnalyticsOptimizationAgent(this.db, this.credentials)
     };
 
-    // Initialize each agent
     for (const [name, agent] of Object.entries(this.agents)) {
       await agent.initialize();
       this.logger.info(`✓ ${name} agent initialized`);
@@ -205,48 +163,6 @@ class YouTubeAutomationAgent {
     this.agentContracts.validateAgentRegistry(this.agents);
     this.logger.info(`✓ agent communication registry contract v${this.agentContracts.version}`);
   }
-
-  async logCapabilitySummary() {
-    const { checkFFmpeg, ffmpegInstallHint } = require('./utils/ffmpeg');
-    const creds = this.credentials.credentials || {};
-
-    const hasText = this.credentials.hasAITextProvider();
-    const hasGemini = Boolean(creds.gemini?.apiKey || process.env.GEMINI_API_KEY);
-    const freeMediaOnly = !/^(0|false|no)$/i.test(String(process.env.FREE_MEDIA_ONLY || 'true'));
-    const hasSyntheticImages = hasGemini || (!freeMediaOnly && Boolean(creds.openai?.apiKey || process.env.OPENAI_API_KEY));
-    const hasTTS = Boolean(
-      creds.openai?.apiKey || process.env.OPENAI_API_KEY ||
-      creds.elevenLabs?.apiKey || process.env.ELEVENLABS_API_KEY ||
-      hasGemini
-    );
-    const hasFFmpeg = await checkFFmpeg();
-    const hasUpload = Boolean(creds.youtube && this.credentials.tokens?.youtube);
-
-    const capabilities = [
-      { name: 'Script & strategy generation', ok: hasText, hint: 'configure an AI text provider (OpenRouter or Gemini supported)' },
-      { name: 'Dark Stickman image generation', ok: hasSyntheticImages, hint: 'configure Gemini image generation for free-only synthetic scene production' },
-      { name: 'First-frame packaging', ok: hasSyntheticImages && hasFFmpeg, hint: 'requires generated Dark Stickman frames and FFmpeg' },
-      { name: 'Voice narration (TTS)', ok: hasTTS, hint: 'configure a live narration provider; silent fallback is not accepted' },
-      { name: 'Video assembly (FFmpeg)', ok: hasFFmpeg, hint: ffmpegInstallHint() },
-      { name: 'YouTube channel access', ok: hasUpload, hint: 'run: npm run credentials:setup' }
-    ];
-
-    console.log(chalk.cyan('\n🔎 Capability check:'));
-    for (const cap of capabilities) {
-      if (cap.ok) {
-        console.log(chalk.green(`  ✓ ${cap.name}`));
-      } else {
-        console.log(chalk.yellow(`  ✗ ${cap.name} — ${cap.hint}`));
-      }
-    }
-
-    if (!hasFFmpeg) {
-      this.logger.warn('FFmpeg is missing: no .mp4 files can be produced until it is installed.');
-    }
-    console.log('');
-    return { hasText, hasSyntheticImages, hasDocumentaryMedia: hasSyntheticImages, hasTTS, hasFFmpeg, hasUpload, freeMediaOnly };
-  }
-
   requireAPIKey() {
     return (req, res, next) => {
       if (!process.env.API_KEY || process.env.API_KEY === 'change-me-before-start') {
@@ -584,12 +500,12 @@ class YouTubeAutomationAgent {
             uptime: process.uptime(),
             // a Dark History slot between two attempts has no job for a moment: it still counts, so a deploy never restarts inside it
             activeJobs: this.activeJobs.size + (this.scheduler?.slotRunning ? 1 : 0),
+            darkHistory: this.scheduler?.darkHistorySettings?.() || null,
             automationPaused: this.scheduler ? !this.scheduler.isEnabled : true,
             // Effective controls (environment wins over stored settings), for operators and verifiers.
             control: await resolveControlState(this.db),
             agents: Object.keys(this.agents),
-            autonomousRunning: Boolean(await this.db.getActiveOperatorRun()),
-            videoProviders: this.agents.production?.aiVideoGenerator?.mediaGeneration?.listProviders() || []
+            autonomousRunning: Boolean(await this.db.getActiveOperatorRun())
           }
         });
       } catch (error) {
@@ -611,7 +527,6 @@ class YouTubeAutomationAgent {
       if (!job) return res.status(404).json({ error: 'Job not found' });
       job.checkpoints = await this.db.listGenerationCheckpoints(job.id);
       job.mediaTasks = await this.db.listMediaGenerationTasks(job.id);
-      job.resumeFrom = this.recovery?.resumePoint(job.checkpoints);
       return res.json(job);
     });
 
@@ -653,133 +568,9 @@ class YouTubeAutomationAgent {
     });
 
     this.app.get('/api/content/:productionId', async (req, res) => {
-      let bundle = await this.db.getProductionBundle(req.params.productionId);
+      const bundle = await this.db.getProductionBundle(req.params.productionId);
       if (!bundle) return res.status(404).json({ error: 'Content not found' });
-      if (this.scenes && !bundle.scenes?.length) {
-        await this.scenes.ensureManifest(bundle);
-        bundle = await this.db.getProductionBundle(req.params.productionId);
-      }
       return res.json(this.decorateContentBundle(bundle));
-    });
-
-    this.app.get('/api/content/:productionId/scenes/:sceneId/estimate', async (req, res) => {
-      try {
-        if (!this.scenes) return res.status(503).json({ error: 'Scene repair requires completed setup' });
-        const result = await this.scenes.regenerationEstimate(req.params.productionId, req.params.sceneId, {
-          provider: req.query.provider
-        });
-        return res.json(result);
-      } catch (error) {
-        return res.status(error.status || 400).json({ error: error.message, code: error.code, details: error.details });
-      }
-    });
-
-    this.app.patch('/api/content/:productionId/scenes/:sceneId', protect, async (req, res) => {
-      try {
-        if (!this.scenes) return res.status(503).json({ error: 'Scene repair requires completed setup' });
-        const result = await this.scenes.updateScene(req.params.productionId, req.params.sceneId, req.body || {});
-        await this.refreshContentReview(req.params.productionId, 'Scene changes require review before scheduling');
-        return res.json({ success: true, result: this.scenes.decorateScene(result, req.params.productionId) });
-      } catch (error) {
-        return res.status(error.status || 400).json({ success: false, error: error.message, code: error.code, details: error.details });
-      }
-    });
-
-    this.app.post('/api/content/:productionId/scenes/reorder', protect, async (req, res) => {
-      try {
-        if (!this.scenes) return res.status(503).json({ error: 'Scene repair requires completed setup' });
-        const result = await this.scenes.reorder(req.params.productionId, req.body?.sceneIds);
-        await this.refreshContentReview(req.params.productionId, 'Timeline order changed; rebuild and review before scheduling');
-        return res.json({ success: true, result: result.map(scene => this.scenes.decorateScene(scene, req.params.productionId)) });
-      } catch (error) {
-        return res.status(error.status || 400).json({ success: false, error: error.message, code: error.code, details: error.details });
-      }
-    });
-
-    this.app.post('/api/content/:productionId/scenes/:sceneId/regenerate', protect, async (req, res) => {
-      try {
-        if (!this.scenes) return res.status(503).json({ error: 'Scene repair requires completed setup' });
-        const result = await this.scenes.regenerate(req.params.productionId, req.params.sceneId, req.body || {});
-        await this.refreshContentReview(req.params.productionId, 'Regenerated scene must be rebuilt and reviewed');
-        return res.status(202).json({ success: true, result: {
-          ...result,
-          scene: this.scenes.decorateScene(result.scene, req.params.productionId)
-        } });
-      } catch (error) {
-        return res.status(error.status || 400).json({ success: false, error: error.message, code: error.code, details: error.details });
-      }
-    });
-
-    this.app.post('/api/content/:productionId/scenes/:sceneId/narration', protect, async (req, res) => {
-      try {
-        if (!this.scenes) return res.status(503).json({ error: 'Narration recovery requires completed setup' });
-        const result = await this.scenes.regenerateNarration(req.params.productionId, req.params.sceneId, req.body || {});
-        await this.refreshContentReview(req.params.productionId, 'Narration regenerated; rebuild the final video before approval');
-        return res.status(202).json({ success: true, result: this.scenes.decorateScene(result, req.params.productionId) });
-      } catch (error) {
-        return res.status(error.status || 400).json({ success: false, error: error.message, code: error.code, details: error.details });
-      }
-    });
-
-    this.app.post('/api/content/:productionId/narration/silence', protect, async (req, res) => {
-      try {
-        if (!this.scenes) return res.status(503).json({ error: 'Narration recovery requires completed setup' });
-        const result = await this.scenes.setSilenceOverride(req.params.productionId, req.body || {});
-        await this.refreshContentReview(
-          req.params.productionId,
-          result.enabled ? 'Intentional silence recorded; rebuild and review before approval' : 'Narration is required again; regenerate it before approval'
-        );
-        return res.json({ success: true, result });
-      } catch (error) {
-        return res.status(error.status || 400).json({ success: false, error: error.message, code: error.code, details: error.details });
-      }
-    });
-
-    this.app.put(
-      '/api/content/:productionId/scenes/:sceneId/asset',
-      protect,
-      express.raw({ type: ['image/*', 'video/*'], limit: '100mb' }),
-      async (req, res) => {
-        try {
-          if (!this.scenes) return res.status(503).json({ error: 'Scene repair requires completed setup' });
-          const result = await this.scenes.replaceAsset(req.params.productionId, req.params.sceneId, {
-            buffer: req.body,
-            contentType: req.get('content-type'),
-            filename: req.get('x-file-name'),
-            rightsConfirmed: req.get('x-rights-confirmed') === 'true',
-            containsSyntheticMedia: req.get('x-synthetic-media') === 'true'
-          });
-          await this.refreshContentReview(req.params.productionId, 'Replacement scene asset must be rebuilt and reviewed');
-          return res.json({ success: true, result: this.scenes.decorateScene(result, req.params.productionId) });
-        } catch (error) {
-          return res.status(error.status || 400).json({ success: false, error: error.message, code: error.code, details: error.details });
-        }
-      }
-    );
-
-    this.app.post('/api/content/:productionId/scenes/rebuild', protect, async (req, res) => {
-      try {
-        if (!this.scenes) return res.status(503).json({ error: 'Scene repair requires completed setup' });
-        const result = await this.scenes.rebuild(req.params.productionId);
-        await this.refreshContentReview(req.params.productionId, 'Scene repair rebuilt; final approval is required');
-        return res.json({ success: true, result });
-      } catch (error) {
-        return res.status(error.status || 400).json({ success: false, error: error.message, code: error.code, details: error.details });
-      }
-    });
-
-    this.app.get('/api/content/:productionId/scenes/:sceneId/asset', async (req, res) => {
-      try {
-        const scene = await this.db.getProductionScene(req.params.productionId, req.params.sceneId);
-        if (!scene?.assetPath) return res.status(404).json({ error: 'Scene asset not found' });
-        const resolved = path.resolve(scene.assetPath);
-        const dataRoot = path.resolve(__dirname, 'data');
-        if (!resolved.startsWith(`${dataRoot}${path.sep}`)) return res.status(403).json({ error: 'Scene asset path is not allowed' });
-        await fs.access(resolved);
-        return res.sendFile(resolved);
-      } catch (_error) {
-        return res.status(404).json({ error: 'Scene asset not found' });
-      }
     });
 
     this.app.patch('/api/content/:productionId', protect, async (req, res) => {
@@ -886,21 +677,16 @@ class YouTubeAutomationAgent {
       }
     });
 
+    // Activates / pauses the channel strategy (the weekly cadence the scheduler reads). There is no planner run any more: stories come from the story pool.
     this.app.post('/api/operator/start', protect, async (req, res) => {
       try {
-        if (isLive()) return res.status(409).json({ success: false, error: 'Dark History is live: stories come from the story pool, not from the planner' });
-        if (this.setupRequired || !this.agents.strategy) {
-          return res.status(503).json({ success: false, error: 'Finish setup with npm run walkthrough before activating the autonomous operator' });
-        }
-        if (this.activeJobs.size) {
-          return res.status(409).json({ success: false, error: 'Wait for the current generation job to finish before starting an autonomous run' });
+        if (this.setupRequired || !this.agents.publishing) {
+          return res.status(503).json({ success: false, error: 'Finish setup with npm run walkthrough before activating production' });
         }
         await this.readiness?.assertReady('Autonomous production');
         const current = await this.db.getChannelStrategy() || {};
         const strategy = this.validateChannelStrategy({ ...(req.body || {}), status: 'active' }, current);
-        const saved = await this.db.saveChannelStrategy(strategy);
-        const run = await this.autonomous.start(saved);
-        return res.status(202).json({ success: true, result: run });
+        return res.status(202).json({ success: true, result: await this.db.saveChannelStrategy(strategy) });
       } catch (error) {
         return res.status(error.status || 400).json({ success: false, error: error.message });
       }
@@ -909,16 +695,7 @@ class YouTubeAutomationAgent {
     this.app.post('/api/operator/pause', protect, async (_req, res) => {
       const strategy = await this.db.getChannelStrategy();
       if (!strategy) return res.status(404).json({ error: 'Channel strategy not found' });
-      const active = await this.db.getActiveOperatorRun();
-      if (active) await this.autonomous.cancel(active.id);
-      const saved = await this.db.saveChannelStrategy({ ...strategy, status: 'paused' });
-      return res.json({ success: true, result: saved });
-    });
-
-    this.app.post('/api/operator/runs/:runId/cancel', protect, async (req, res) => {
-      const run = await this.autonomous.cancel(req.params.runId);
-      if (!run) return res.status(404).json({ error: 'Operator run not found' });
-      return res.json({ success: true, result: run });
+      return res.json({ success: true, result: await this.db.saveChannelStrategy({ ...strategy, status: 'paused' }) });
     });
 
     this.app.put('/api/content/:productionId/provenance', protect, async (req, res) => {
@@ -945,21 +722,6 @@ class YouTubeAutomationAgent {
           reviewedAt: null
         });
         return res.json({ success: true, result: this.decorateContentBundle(result) });
-      } catch (error) {
-        return res.status(error.status || 400).json({ success: false, error: error.message });
-      }
-    });
-
-    this.app.post('/api/operator/runs/:runId/resume', protect, async (req, res) => {
-      try {
-        if (isLive()) return res.status(409).json({ success: false, error: 'Dark History is live: operator runs of the old planner are not resumed' });
-        if (this.setupRequired || !this.agents.strategy) {
-          return res.status(503).json({ success: false, error: 'Finish setup before resuming the autonomous operator' });
-        }
-        await this.readiness?.assertReady('Autonomous production recovery');
-        const strategy = await this.db.getChannelStrategy();
-        const run = await this.autonomous.resume(req.params.runId, strategy);
-        return res.status(202).json({ success: true, result: run });
       } catch (error) {
         return res.status(error.status || 400).json({ success: false, error: error.message });
       }
@@ -1227,14 +989,6 @@ class YouTubeAutomationAgent {
       return res.json({ success: true, result: idea });
     });
 
-    this.app.post('/api/ideas/:ideaId/generate', protect, async (req, res) => {
-      const idea = await this.db.updateContentIdea(req.params.ideaId, { status: 'generating' });
-      if (!idea) return res.status(404).json({ error: 'Idea not found' });
-      const job = await this.startGenerationJob({ topic: idea.topic, style: idea.style, length: req.body?.length || 'medium', source: 'idea' });
-      await this.db.updateContentIdea(idea.id, { status: 'generated' });
-      return res.status(202).json({ success: true, result: job });
-    });
-
     this.app.post('/api/automation/:action', protect, async (req, res) => {
       if (!this.scheduler) return res.status(409).json({ error: 'Finish setup before controlling automation' });
       const { action } = req.params;
@@ -1249,7 +1003,6 @@ class YouTubeAutomationAgent {
         await this.scheduler.resumeAutomation();
         await this.db.setSetting('automation_paused', 'false');
         await this.operator.notify({ type: 'automation_resumed', level: 'info', title: 'Automation resumed', message: 'Automation was resumed by the operator.' });
-        await this.resumeInterruptedAutonomousWork('operator_resume');
       } else {
         return res.status(400).json({ error: 'Action must be pause or resume' });
       }
@@ -1264,27 +1017,6 @@ class YouTubeAutomationAgent {
       for (const key of allowed) {
         if (req.body?.[key] !== undefined) await this.db.setSetting(key, String(req.body[key]));
       }
-      const provider = req.body?.video_provider;
-      if (provider !== undefined) {
-        const supported = ['slideshow', 'auto', 'seedance', 'minimax_h3', 'google_omni', 'kling', 'wan'];
-        if (!supported.includes(provider)) return res.status(400).json({ error: 'Unsupported video provider' });
-        await this.db.setSetting('video_provider', provider);
-      }
-      const mode = req.body?.video_generation_mode;
-      if (mode !== undefined) {
-        if (!['hybrid', 'slideshow'].includes(mode)) return res.status(400).json({ error: 'Unsupported video generation mode' });
-        await this.db.setSetting('video_generation_mode', mode);
-      }
-      if (req.body?.video_clip_duration !== undefined) {
-        const value = Number(req.body.video_clip_duration);
-        if (!Number.isInteger(value) || value < 3 || value > 30) return res.status(400).json({ error: 'Clip duration must be between 3 and 30 seconds' });
-        await this.db.setSetting('video_clip_duration', String(value));
-      }
-      if (req.body?.video_max_generated_seconds !== undefined) {
-        const value = Number(req.body.video_max_generated_seconds);
-        if (!Number.isInteger(value) || value < 0 || value > 600) return res.status(400).json({ error: 'Generated seconds cap must be between 0 and 600' });
-        await this.db.setSetting('video_max_generated_seconds', String(value));
-      }
       return res.json({ success: true, result: await this.db.getAllSettings() });
     });
 
@@ -1295,125 +1027,21 @@ class YouTubeAutomationAgent {
   }
 
   async startGenerationJob(input = {}) {
-    if (this.setupRequired || !this.agents.strategy) {
-      const error = new Error('Finish setup with npm run walkthrough before generating content');
-      error.status = 503;
-      throw error;
-    }
-    if (isLive()) return this.startDocumentaryJob(input);
-    if (['scheduler', 'autonomous_operator'].includes(input.source)) {
-      await this.readiness?.assertReady('Automated generation');
-    }
-    const maxConcurrent = Math.max(1, parseInt(process.env.MAX_CONCURRENT_JOBS || '1', 10));
-    if (this.activeJobs.size >= maxConcurrent) {
-      const error = new Error(`Generation is busy (${this.activeJobs.size}/${maxConcurrent} active jobs). Try again when the current job finishes.`);
-      error.status = 429;
-      throw error;
-    }
-
-    const validation = this.validateGenerateRequestBody(input);
-    if (!validation.valid) {
-      const error = new Error(validation.error);
-      error.status = validation.status;
-      throw error;
-    }
-
-    const job = await this.db.createGenerationJob({
-      ...validation.value,
-      source: input.source || 'manual'
-    });
-
-    const controller = new AbortController();
-    this.jobAbortControllers.set(job.id, controller);
-    const work = this.runGenerationJob(job.id, validation.value, controller.signal)
-      .catch(error => this.logger.error(`Generation job ${job.id} failed:`, error))
-      .finally(() => {
-        this.activeJobs.delete(job.id);
-        this.jobAbortControllers.delete(job.id);
-      });
-    this.activeJobs.set(job.id, work);
-    return job;
+    return this.startDocumentaryJob(input);
   }
-
-  async resumeGenerationJob(jobId, options = {}) {
-    if (this.setupRequired || !this.agents.strategy) {
-      const error = new Error('Finish setup with npm run walkthrough before resuming content generation');
-      error.status = 503;
-      throw error;
-    }
+  async resumeGenerationJob(jobId) {
     const job = await this.db.getGenerationJob(jobId);
     if (!job) {
       const error = new Error('Generation job not found');
       error.status = 404;
       throw error;
     }
-    if (!['failed', 'interrupted'].includes(job.status)) {
-      const error = new Error('Only failed or interrupted generation jobs can be resumed');
-      error.status = 409;
-      throw error;
-    }
-    if (isDocumentary(job)) {
-      // The old pipeline would turn the story's title into a stickman script. A documentary job is retried as a new job.
-      await this.releaseInterruptedDocumentaryJobs();
-      const error = new Error('A Dark History job is not resumed; the scheduler starts a new job with the next story');
-      error.status = 409;
-      throw error;
-    }
-    if (this.activeJobs.has(job.id)) {
-      const error = new Error('This generation job is already running');
-      error.status = 409;
-      throw error;
-    }
-    const maxConcurrent = Math.max(1, parseInt(process.env.MAX_CONCURRENT_JOBS || '1', 10));
-    if (this.activeJobs.size >= maxConcurrent) {
-      const error = new Error(`Generation is busy (${this.activeJobs.size}/${maxConcurrent} active jobs). Try again when the current job finishes.`);
-      error.status = 429;
-      throw error;
-    }
-    if (['scheduler', 'autonomous_operator'].includes(job.source)) {
-      await this.readiness?.assertReady('Automated generation recovery');
-    }
-
-    const checkpoints = await this.db.listGenerationCheckpoints(job.id);
-    const resumeFrom = options.stage || this.recovery.resumePoint(checkpoints);
-    if (!GENERATION_STAGES.includes(resumeFrom)) {
-      const error = new Error('Resume stage is not supported');
-      error.status = 400;
-      throw error;
-    }
-    if (options.stage) await this.recovery.resetFrom(job.id, resumeFrom);
-    const input = {
-      topic: job.topic,
-      style: job.style,
-      length: job.length || 'medium',
-      strategyContext: job.details?.strategyContext || {}
-    };
-    const updated = await this.db.updateGenerationJob(job.id, {
-      status: 'queued',
-      stage: resumeFrom,
-      error: null,
-      cancelRequested: false,
-      completedAt: null,
-      details: {
-        resumeCount: Number(job.details?.resumeCount || 0) + 1,
-        resumeFrom,
-        failedStage: null,
-        pausedAt: null,
-        pausedBeforeStage: null
-      }
-    });
-    const controller = new AbortController();
-    this.jobAbortControllers.set(job.id, controller);
-    const work = this.runGenerationJob(job.id, input, controller.signal)
-      .catch(error => this.logger.error(`Resumed generation job ${job.id} failed:`, error))
-      .finally(() => {
-        this.activeJobs.delete(job.id);
-        this.jobAbortControllers.delete(job.id);
-      });
-    this.activeJobs.set(job.id, work);
-    return updated;
+    // A Dark History job is not resumed: its story goes back to the pool and the scheduler starts a new job with the next one.
+    await this.releaseInterruptedDocumentaryJobs();
+    const error = new Error('A Dark History job is not resumed; the scheduler starts a new job with the next story');
+    error.status = 409;
+    throw error;
   }
-
   async cancelGenerationJob(jobId, reason = 'Cancelled by operator') {
     const job = await this.db.getGenerationJob(jobId);
     if (!job) {
@@ -1440,47 +1068,14 @@ class YouTubeAutomationAgent {
   }
 
   async queueScheduledContent(input = {}) {
-    // Fail fast: the autonomous operator researches and plans with LLM calls BEFORE its first generation job
-    // reaches the readiness gate (startGenerationJob). Checking here keeps a blocked system from spending the
-    // free LLM quota on runs that cannot start a video, and lets the scheduler report the reason once.
-    // (2026-10-04: the scheduler logged six "queued" operator runs between 06:00 and 16:00 UTC while no
-    // generation job was created.)
+    // Fail fast: a blocked system must not spend the free LLM quota on runs that cannot start a video, and the scheduler reports the reason once.
     await this.readiness?.assertReady('Automated generation');
-    // Dark History: the stories come from the pool, not from the planner (no research or planning call is made).
-    if (isLive()) return this.startDocumentaryJob(input);
-    const strategy = await this.db.getChannelStrategy();
-    if (strategy?.status === 'active') {
-      const weeklyRows = await this.db.getAllRows(
-        `SELECT details FROM generation_jobs
-         WHERE status = 'completed'
-         AND created_at >= datetime('now', '-7 days')`
-      );
-      const usableCount = weeklyRows.filter(row => {
-        try {
-          const details = typeof row.details === 'string' ? JSON.parse(row.details || '{}') : (row.details || {});
-          return ['needs_review', 'approved'].includes(details.reviewStatus);
-        } catch (_error) {
-          return false;
-        }
-      }).length;
-      const remaining = Math.max(1, strategy.cadence_per_week - usableCount);
-      return this.autonomous.start({
-        ...strategy,
-        videos_per_run: Math.min(strategy.videos_per_run, remaining)
-      });
-    }
-    return this.startGenerationJob(input);
+    return this.startDocumentaryJob(input);
   }
-
   async runGenerationJob(jobId, input, abortSignal = null) {
     try {
       await this.db.updateGenerationJob(jobId, { status: 'running', progress: 2, error: null, completedAt: null });
-      const result = await this.generateContent(input.topic, input.style, input.length, {
-        jobId,
-        strategyContext: input.strategyContext,
-        abortSignal,
-        pipeline: input.pipeline
-      });
+      const result = await this.generateDocumentaryContent({ jobId, abortSignal });
       await this.db.updateGenerationJob(jobId, {
         status: 'completed',
         stage: result.scheduledFor ? 'scheduled' : result.reviewStatus,
@@ -1556,63 +1151,6 @@ class YouTubeAutomationAgent {
     throw error;
   }
 
-  /**
-   * After a restart (or when automation resumes) continue the most recent
-   * interrupted autonomous operator run from its checkpoints instead of
-   * abandoning it. Bounded per run so a crash-looping item cannot loop forever.
-   */
-  async resumeInterruptedAutonomousWork(reason = 'startup') {
-    try {
-      const control = await resolveControlState(this.db);
-      if (!control.autonomousMode || control.automationPaused || !this.autonomous) return null;
-      if (isLive()) return null; // old planner runs and old jobs are never resumed while Dark History is live
-      const strategy = await this.db.getChannelStrategy();
-      if (strategy?.status !== 'active') return null;
-      if (await this.db.getActiveOperatorRun()) return null;
-      const maxAttempts = Math.max(1, Number(process.env.AUTO_RESUME_MAX_ATTEMPTS || 3));
-      const claimBudget = async id => {
-        const budgetKey = `auto_resume_count:${id}`;
-        const attempts = Number(await this.db.getSetting(budgetKey) || 0);
-        if (attempts >= maxAttempts) {
-          this.logger.warn(`Interrupted work ${id} reached its automatic resume budget (${maxAttempts}); leaving it for review`);
-          return null;
-        }
-        await this.db.setSetting(budgetKey, String(attempts + 1));
-        return attempts + 1;
-      };
-
-      const run = await this.db.getRow(
-        `SELECT id FROM operator_runs
-         WHERE status = 'interrupted' AND updated_at >= datetime('now', '-1 day')
-         ORDER BY updated_at DESC LIMIT 1`
-      );
-      if (run) {
-        const attempt = await claimBudget(run.id);
-        if (!attempt) return null;
-        const resumed = await this.autonomous.resume(run.id, strategy);
-        this.logger.info(`Resumed interrupted operator run ${run.id} (${reason}, attempt ${attempt}/${maxAttempts})`);
-        return resumed;
-      }
-
-      // Scheduler jobs started outside an operator run.
-      const job = await this.db.getRow(
-        `SELECT id FROM generation_jobs
-         WHERE status = 'interrupted' AND source = 'scheduler'
-           AND updated_at >= datetime('now', '-1 day')
-         ORDER BY updated_at DESC LIMIT 1`
-      );
-      if (!job) return null;
-      const attempt = await claimBudget(job.id);
-      if (!attempt) return null;
-      const resumed = await this.resumeGenerationJob(job.id);
-      this.logger.info(`Resumed interrupted scheduler job ${job.id} (${reason}, attempt ${attempt}/${maxAttempts})`);
-      return resumed;
-    } catch (error) {
-      this.logger.warn(`Automatic recovery of interrupted work did not start: ${error.message}`);
-      return null;
-    }
-  }
-
   async verifyBeforeUpload(bundle) {
     const productionId = bundle?.id || bundle?.productionId || null;
     const profile = await this.db.getChannelProfile() || {};
@@ -1656,296 +1194,6 @@ class YouTubeAutomationAgent {
     await this.db.updateGenerationJob(jobId, { stage, progress, details });
   }
 
-  summarizeAgentHandoff(stage, artifact = {}) {
-    if (stage === 'strategy') {
-      return {
-        topic: artifact.topic || null,
-        sourceCount: Array.isArray(artifact.researchSources) ? artifact.researchSources.length : 0,
-        researchContextCount: Array.isArray(artifact.researchContext) ? artifact.researchContext.length : 0
-      };
-    }
-    if (stage === 'script') {
-      return {
-        title: artifact.title || null,
-        sectionCount: Array.isArray(artifact.mainContent?.sections) ? artifact.mainContent.sections.length : 0,
-        claimCount: Array.isArray(artifact.claims) ? artifact.claims.length : 0
-      };
-    }
-    if (stage === 'thumbnail') {
-      return {
-        path: artifact.path || null,
-        reviewRequired: artifact.reviewRequired === true
-      };
-    }
-    if (stage === 'seo') {
-      return {
-        title: artifact.title || null,
-        tagCount: Array.isArray(artifact.tags) ? artifact.tags.length : 0
-      };
-    }
-    if (stage === 'production') {
-      return {
-        productionId: artifact.id || null,
-        sceneCount: Array.isArray(artifact.assets?.video?.scenePlan) ? artifact.assets.video.scenePlan.length : 0,
-        simulated: artifact.assets?.finalVideo?.simulated === true
-      };
-    }
-    return {};
-  }
-
-  async recordAgentHandoff(jobId, stage, artifact) {
-    if (!jobId) return;
-    const job = await this.db.getGenerationJob(jobId);
-    if (!job) return;
-    const agentHandoffs = {
-      ...(job.details?.agentHandoffs || {}),
-      [stage]: {
-        contractVersion: this.agentContracts.version,
-        validatedAt: new Date().toISOString(),
-        summary: this.summarizeAgentHandoff(stage, artifact)
-      }
-    };
-    await this.db.updateGenerationJob(jobId, { details: { agentHandoffs } });
-  }
-
-  /**
-   * Script stage with an editor: write, review, and send a rejected draft back with
-   * concrete notes (bounded). Nothing is produced from a script that fails review.
-   */
-  async generateReviewedScript(strategy) {
-    const writer = this.agents.scriptWriter;
-    let history = [];
-    try {
-      const rows = await this.db.getAllRows(
-        `SELECT s.full_script AS text FROM generation_jobs j
-         JOIN productions p ON p.id = j.production_id
-         JOIN scripts s ON s.id = p.script_id
-         WHERE j.status = 'completed' AND j.created_at >= datetime('now', '-60 days')
-         ORDER BY j.created_at DESC LIMIT 40`
-      );
-      history = rows.map(row => row.text).filter(Boolean);
-    } catch (error) {
-      this.logger.warn(`Recent script history unavailable for the creative review: ${error.message}`);
-    }
-    return reviewedScriptLoop({
-      write: brief => writer.generateScript(strategy, brief ? { revisionBrief: brief } : {}),
-      review: script => reviewScript({ script, strategy, aiText: writer.aiTextService || null, history, logger: this.logger }),
-      logger: this.logger
-    });
-  }
-
-  async generateContent(topic = null, style = null, _length = 'short', options = {}) {
-    if (options.pipeline === DOCUMENTARY_PIPELINE) return this.generateDocumentaryContent(options);
-    this.logger.info('Starting content generation pipeline...');
-    const { jobId = null, strategyContext: rawStrategyContext = {}, abortSignal = null } = options;
-    const strategyContext = rawStrategyContext || {};
-    const profile = await this.db.getChannelProfile() || {};
-    const lengthLabels = { short: '20-45 seconds', medium: '20-45 seconds', long: '20-45 seconds' };
-
-    // Step 1: Strategy
-    const strategy = await this.runGenerationStage(jobId, 'strategy', 10, async () => {
-      let generated = null;
-      const vetted = strategyContext.plan;
-      if (vetted && vetted.topic && vetted.topic === topic && typeof this.agents.strategy.buildStrategyFromPlanItem === 'function') {
-        generated = await this.agents.strategy.buildStrategyFromPlanItem(vetted);
-        if (!generated) this.logger.warn('The planner idea no longer passes the gates; generating a new strategy for the topic');
-      }
-      if (!generated) generated = await this.agents.strategy.generateContentStrategy(topic);
-      const contentStyles = new Set(['tutorial', 'explainer', 'list', 'review', 'story']);
-      const requestedStyle = style || profile.default_style || null;
-      if (requestedStyle && contentStyles.has(requestedStyle.toLowerCase())) {
-        generated.contentType = requestedStyle.charAt(0).toUpperCase() + requestedStyle.slice(1).toLowerCase();
-      }
-      generated.requestedStyle = requestedStyle;
-      generated.requestedLengthKey = 'short';
-      generated.requestedLength = lengthLabels.short;
-      generated.contentType = 'Story';
-      generated.fictional = true;
-      generated.provenanceMode = 'fictional';
-      generated.angle = strategyContext.angle || generated.angle;
-      generated.planRationale = strategyContext.rationale || null;
-      generated.targetAudience = strategyContext.audience || profile.target_audience || generated.targetAudience;
-      generated.brandVoice = profile.brand_voice || null;
-      generated.channelGoal = strategyContext.objective || profile.goal || null;
-      generated.channelValueProposition = strategyContext.valueProposition || null;
-      generated.channelConstraints = strategyContext.constraints || null;
-      generated.contentPillar = strategyContext.pillar || null;
-      generated.callToAction = profile.call_to_action || null;
-      const generatedResearchSources = Array.isArray(generated.researchSources) ? generated.researchSources : [];
-      const contextResearchSources = Array.isArray(strategyContext.researchSources) ? strategyContext.researchSources : [];
-      const trustedResearchSource = source => (
-        source &&
-        typeof source === 'object' &&
-        !Array.isArray(source) &&
-        source.url &&
-        (source.retrievalStatus === 'fetched' || source.status === 'verified')
-      );
-      generated.researchSources = [...new Map(
-        [...generatedResearchSources, ...contextResearchSources]
-          .filter(trustedResearchSource)
-          .map(source => [source.url, source])
-      ).values()];
-      return this.agentContracts.handoff('strategy', generated, { productionMode: true });
-    });
-    // Revalidate after recovery too: a reused checkpoint must satisfy the same
-    // communication contract as a freshly generated artifact.
-    this.agentContracts.handoff('strategy', strategy, { productionMode: true });
-    await this.recordAgentHandoff(jobId, 'strategy', strategy);
-    this.logger.info(`Strategy generated: ${strategy.topic}`);
-
-    // Step 2: Script Writing
-    const script = await this.runGenerationStage(
-      jobId,
-      'script',
-      25,
-      async () => this.agentContracts.handoff(
-        'script',
-        await this.generateReviewedScript(strategy),
-        { strategy }
-      )
-    );
-    this.agentContracts.handoff('script', script, { strategy });
-    await this.recordAgentHandoff(jobId, 'script', script);
-    this.logger.info(`Script generated: ${script.title}`);
-
-    // Step 3: Thumbnail Design
-    const thumbnail = await this.runGenerationStage(
-      jobId,
-      'thumbnail',
-      40,
-      async () => this.agentContracts.handoff(
-        'thumbnail',
-        await this.agents.thumbnailDesigner.generateThumbnail(script),
-        { strategy, script }
-      )
-    );
-    this.agentContracts.handoff('thumbnail', thumbnail, { strategy, script });
-    await this.recordAgentHandoff(jobId, 'thumbnail', thumbnail);
-    this.logger.info('Thumbnail generated');
-
-    // Step 4: SEO Optimization
-    const seoData = await this.runGenerationStage(
-      jobId,
-      'seo',
-      52,
-      async () => this.agentContracts.handoff(
-        'seo',
-        await this.agents.seoOptimizer.optimize(script, strategy, { thumbnail }),
-        { strategy, script, thumbnail }
-      )
-    );
-    this.agentContracts.handoff('seo', seoData, { strategy, script, thumbnail });
-    await this.recordAgentHandoff(jobId, 'seo', seoData);
-    this.logger.info('SEO optimization complete');
-
-    // Step 5: Production Management
-    const productionData = await this.runGenerationStage(
-      jobId,
-      'production',
-      62,
-      async () => this.agentContracts.handoff(
-        'production',
-        await this.agents.production.processContent({ strategy, script, thumbnail, seo: seoData, jobId, abortSignal }),
-        { strategy, script, thumbnail, seo: seoData }
-      )
-    );
-    this.agentContracts.handoff('production', productionData, { strategy, script, thumbnail, seo: seoData });
-    await this.recordAgentHandoff(jobId, 'production', productionData);
-    this.logger.info('Production processing complete');
-
-    // Re-persist reused production artifacts in case a restart happened between checkpointing and persistence.
-    const contentId = await this.db.saveProductionData(productionData);
-    await this.db.saveProductionSnapshot(productionData);
-    if (!this.provenance) this.provenance = new ProvenanceService(this.db);
-    productionData.provenance = await this.provenance.initialize(contentId, productionData);
-    productionData.discoverability = this.discoverability
-      ? await this.discoverability.auditProduction(productionData, profile, 'youtube')
-      : null;
-    this.logger.info(`Content saved with ID: ${contentId}`);
-
-    // Step 6: Quality and approval gate
-    return this.runGenerationStage(jobId, 'quality_review', 90, async () => {
-      // AUTONOMOUS_MODE and APPROVAL_REQUIRED are independent controls: autonomy lets
-      // the orchestrator run unattended, it never implies that approval is waived.
-      const control = await resolveControlState(this.db);
-      const autonomousMode = control.autonomousMode;
-      const approvalRequired = control.approvalRequired;
-      const packagingExperiment = approvalRequired
-        ? await this.preparePackagingExperiment(thumbnail, productionData, seoData, script)
-        : null;
-      const quality = await this.operator.runQualityChecks(productionData, profile);
-      const reviewStatus = quality.passed
-        ? (approvalRequired ? 'needs_review' : 'approved')
-        : 'needs_attention';
-      await this.db.saveContentReview(contentId, {
-        status: reviewStatus,
-        qualityChecks: quality.checks,
-        editorData: packagingExperiment ? {
-          packagingExperiment,
-          selectedTitleVariant: 0,
-          selectedThumbnailVariant: 0
-        } : {},
-        reviewNotes: quality.passed ? null : `Blocking checks failed: ${quality.blockingFailures.join(', ')}`,
-        reviewedAt: approvalRequired ? null : new Date().toISOString()
-      });
-
-      let scheduleEntry = null;
-      if (reviewStatus === 'approved') {
-        scheduleEntry = await this.agents.publishing.scheduleContent(productionData);
-        await this.db.updateProductionStatus(contentId, scheduleEntry ? 'scheduled' : productionData.status);
-        if (!scheduleEntry) {
-          // An approved Short with no schedule row is never published; do not let that be silent.
-          this.logger.error(`Approved Short ${contentId} was not scheduled (no publish slot was produced)`);
-          await this.operator.notify({
-            type: 'approved_not_scheduled',
-            level: 'error',
-            title: 'Approved Short has no publish slot',
-            message: `${script.title} passed every gate but no publish slot was created, so it will not be published until it is scheduled.`,
-            data: { contentId },
-            dedupeKey: `approved_not_scheduled:${contentId}`,
-            dedupeMinutes: 360
-          });
-        }
-      } else {
-        await this.db.updateProductionStatus(contentId, reviewStatus);
-        // Only a failed quality check is a rejection. A Short that passed every gate while approval is
-        // required is simply waiting for the operator and must not be reported as rejected.
-        if (autonomousMode && !quality.passed) {
-          await this.operator.notify({
-            type: 'content_rejected',
-            level: 'warning',
-            title: 'Production rejected by automated quality gates',
-            message: `${script.title} was rejected; the channel will continue with another eligible story instead of requesting human review.`,
-            data: { contentId, qualityScore: quality.score, blockingFailures: quality.blockingFailures }
-          });
-          const error = new Error(`Autonomous production rejected by quality gates: ${quality.blockingFailures.join(', ')}`);
-          error.code = 'AUTONOMOUS_QUALITY_REJECTED';
-          error.status = 409;
-          throw error;
-        }
-        await this.operator.notify({
-          type: 'review_required',
-          level: quality.passed ? 'info' : 'warning',
-          title: quality.passed ? 'Content ready for review' : 'Content needs attention',
-          message: `${script.title} ${quality.passed ? 'is ready for approval' : 'failed one or more quality checks'}`,
-          data: { contentId, qualityScore: quality.score }
-        });
-      }
-
-      return {
-        contentId,
-        title: script.title,
-        topic: strategy.topic || null,
-        status: productionData.status,
-        reviewStatus,
-        qualityScore: quality.score,
-        scheduledFor: scheduleEntry ? scheduleEntry.publishTime : null,
-        publicationState: publicationState({ qaPassed: quality.passed, control }),
-        controlMode: control.mode
-      };
-    });
-  }
-
   getYieldStats() {
     if (!this.yieldStats) this.yieldStats = new YieldStats(this.db);
     return this.yieldStats;
@@ -1954,7 +1202,7 @@ class YouTubeAutomationAgent {
   /** Every text service of the agents reports its per-role, per-model results to the Dark History statistics (never throws into a request). */
   attachYieldStats() {
     const stats = this.getYieldStats();
-    const services = new Set(Object.values(this.agents || {}).map(agent => agent?.aiTextService).filter(Boolean));
+    const services = new Set([this.aiText, ...Object.values(this.agents || {}).map(agent => agent?.aiTextService)].filter(Boolean));
     for (const service of services) service.statsSink = event => stats.llmEvent(event).catch(() => {});
     return services.size;
   }
@@ -1966,7 +1214,7 @@ class YouTubeAutomationAgent {
 
   /** Starts a Dark History job (same guards as startGenerationJob); the work runs in the background like every job. */
   async startDocumentaryJob(input = {}) {
-    if (this.setupRequired || !this.agents.strategy) {
+    if (this.setupRequired || !this.aiText) {
       const error = new Error('Finish setup with npm run walkthrough before generating content');
       error.status = 503;
       throw error;
@@ -2001,13 +1249,13 @@ class YouTubeAutomationAgent {
     await this.assertJobMayContinue(jobId, 'strategy');
     const pool = this.getStoryPool();
     this.attachYieldStats();
-    const llm = this.agents.strategy?.aiTextService || this.agents.scriptWriter?.aiTextService;
+    const llm = this.aiText;
     let storyId = null;
     let title = null;
     try {
       if (!llm) throw new Error('No text provider is configured for the grounded writer');
       const produced = await produceFromPool({
-        pool, llm, generator: this.agents.production?.aiVideoGenerator, signal: abortSignal, logger: this.logger,
+        pool, llm, generator: this.tts, signal: abortSignal, logger: this.logger,
         onStage: async (stage, progress, info) => {
           if (info?.storyId) {
             storyId = info.storyId;
@@ -2054,6 +1302,7 @@ class YouTubeAutomationAgent {
           message: `${productionData.script.title} is ready for approval`, data: { contentId, qualityScore: quality.score }
         });
       }
+      await this.getYieldStats().uncertainBlocked(productionData.script?.metadata?.creativeReview?.attempts).catch(() => {});
       return {
         contentId,
         title: productionData.script.title,
@@ -2102,21 +1351,6 @@ class YouTubeAutomationAgent {
     } catch (error) {
       this.logger.warn(`Could not release interrupted Dark History jobs: ${error.message}`);
     }
-  }
-
-  async runGenerationStage(jobId, stage, progress, producer) {
-    if (jobId) await this.assertJobMayContinue(jobId, stage);
-    if (!jobId) {
-      await this.updateJobStage(jobId, stage, progress);
-      return producer();
-    }
-    if (!this.recovery) {
-      this.recovery = new GenerationRecoveryService(this.db, {
-        logger: this.logger,
-        updateJobStage: (...args) => this.updateJobStage(...args)
-      });
-    }
-    return this.recovery.run(jobId, stage, progress, producer);
   }
 
   validateEditorData(input = {}, existing = {}) {
@@ -2169,48 +1403,6 @@ class YouTubeAutomationAgent {
     return output;
   }
 
-  buildTitleExperimentVariants(title) {
-    const control = String(title || '').trim().slice(0, 100);
-    const withoutPunctuation = control.replace(/[.!?]+$/, '');
-    return [
-      { label: 'Control', title: control },
-      { label: 'Step-by-step', title: `${withoutPunctuation}: Step-by-Step`.slice(0, 100) },
-      { label: 'Curiosity', title: `${withoutPunctuation}: What Most People Miss`.slice(0, 100) }
-    ];
-  }
-
-  async preparePackagingExperiment(thumbnail, productionData, seoData, script) {
-    const approved = await this.db.listLearningRecommendations({ status: 'approved', limit: 25 });
-    const recommendation = approved.find(item => item.proposedChange?.experiment === 'title_thumbnail_variant');
-    if (!recommendation) return null;
-    try {
-      const generated = await this.agents.thumbnailDesigner.generateABVariants(thumbnail.concept);
-      return {
-        sourceRecommendationId: recommendation.id,
-        hypothesis: recommendation.title,
-        status: 'draft',
-        titleVariants: Array.isArray(seoData.packagingVariants) && seoData.packagingVariants.length
-          ? seoData.packagingVariants.map(item => ({
-              label: item.label,
-              title: item.title,
-              mode: item.mode,
-              rationale: item.rationale,
-              score: item.score,
-              thumbnailComplementarity: item.thumbnailComplementarity
-            }))
-          : this.buildTitleExperimentVariants(seoData.title || script.title),
-        thumbnailVariants: [
-          { label: 'Control', path: productionData.assets?.thumbnail?.path, concept: thumbnail.concept },
-          ...generated
-        ],
-        createdAt: new Date().toISOString()
-      };
-    } catch (error) {
-      this.logger.warn(`Packaging experiment preparation failed without blocking production: ${error.message}`);
-      return null;
-    }
-  }
-
   validateProfile(input) {
     const textFields = ['channelName', 'goal', 'targetAudience', 'brandVoice', 'defaultStyle', 'callToAction', 'visualStyle', 'timezone'];
     const result = {};
@@ -2232,9 +1424,7 @@ class YouTubeAutomationAgent {
     const experiment = bundle.editorData?.packagingExperiment;
     return {
       ...bundle,
-      scenes: (bundle.scenes || []).map(scene => this.scenes
-        ? this.scenes.decorateScene(scene, bundle.id)
-        : scene),
+      scenes: bundle.scenes || [],
       assetUrls: {
         video: bundle.assets?.finalVideo?.path && !bundle.assets?.finalVideo?.simulated ? `/api/content/${bundle.id}/asset/video` : null,
         thumbnail: bundle.assets?.thumbnail?.path ? `/api/content/${bundle.id}/asset/thumbnail` : null,

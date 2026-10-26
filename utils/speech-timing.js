@@ -1,18 +1,11 @@
 /**
- * Speech-aware timing for horror Shorts (FFmpeg only, no extra dependencies).
+ * Speech-aware timing (FFmpeg only, no extra dependencies).
  *
  * 1. detectSpeechWindow(): where the voice really starts/ends and where it pauses.
  * 2. buildCaptionCues(): caption cues placed by word weight inside that window, so
  *    captions follow pauses instead of an even per-word split.
- * 3. analyzeOpeningFrames() + evaluateHook(): a measured check of the first 1.5 s
- *    (voice onset, first caption, a visible and moving first frame).
  */
-const fs = require('fs').promises;
-const os = require('os');
-const path = require('path');
 const { runFFmpeg, getMediaDuration } = require('./ffmpeg');
-
-const HOOK_WINDOW_SECONDS = 1.5;
 
 function num(value, fallback) {
   const parsed = Number(value);
@@ -113,100 +106,4 @@ function cuesToSrt(cues) {
   return cues.map((cue, index) => `${index + 1}\n${formatSrtTime(cue.start)} --> ${formatSrtTime(cue.end)}\n${cue.text}\n\n`).join('');
 }
 
-function parseSrt(text) {
-  const cues = [];
-  const pattern = /(\d+):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d+):(\d{2}):(\d{2})[,.](\d{3})\s*\n([\s\S]*?)(?:\n\s*\n|$)/g;
-  let match;
-  while ((match = pattern.exec(String(text || '')))) {
-    const at = (h, m, s, ms) => Number(h) * 3600 + Number(m) * 60 + Number(s) + Number(ms) / 1000;
-    cues.push({ start: at(match[1], match[2], match[3], match[4]), end: at(match[5], match[6], match[7], match[8]), text: match[9].trim() });
-  }
-  return cues;
-}
-
-async function grabGrayFrame(videoPath, atSeconds, directory, label, signal) {
-  const out = path.join(directory, `${label}.gray`);
-  await runFFmpeg([
-    '-y', '-ss', String(atSeconds), '-i', videoPath, '-frames:v', '1',
-    '-vf', 'scale=72:128,format=gray', '-f', 'rawvideo', out
-  ], { timeoutMs: 60000, signal });
-  const data = await fs.readFile(out);
-  if (data.length !== 72 * 128) throw new Error(`No decodable frame at ${atSeconds}s`);
-  return data;
-}
-
-function frameStats(data) {
-  let sum = 0;
-  for (const value of data) sum += value;
-  const mean = sum / data.length;
-  let variance = 0;
-  for (const value of data) variance += (value - mean) * (value - mean);
-  return { mean, stddev: Math.sqrt(variance / data.length) };
-}
-
-/** Brightness, structure and motion of the opening seconds, from decoded pixels. */
-async function analyzeOpeningFrames(videoPath, options = {}) {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'hook-frames-'));
-  try {
-    const first = await grabGrayFrame(videoPath, 0, directory, 'f0', options.signal);
-    const late = await grabGrayFrame(videoPath, HOOK_WINDOW_SECONDS - 0.1, directory, 'f1', options.signal);
-    let diff = 0;
-    for (let i = 0; i < first.length; i += 1) diff += Math.abs(first[i] - late[i]);
-    return { ...frameStats(first), motion: diff / first.length };
-  } finally {
-    await fs.rm(directory, { recursive: true, force: true }).catch(() => {});
-  }
-}
-
-const HOOK_LIMITS = {
-  maxVoiceOnset: 1.0,
-  maxFirstCaption: 1.0,
-  minFirstFrameMean: 6,
-  minFirstFrameStddev: 8,
-  minOpeningMotion: num(process.env.HOOK_MIN_MOTION, 0.15)
-};
-
-/** Measured first-1.5-seconds decision. */
-function evaluateHook({ speech, cues, frames }) {
-  const failures = [];
-  const onset = speech ? speech.speechStart : null;
-  if (!Number.isFinite(onset)) failures.push('voice onset could not be measured');
-  else if (onset > HOOK_LIMITS.maxVoiceOnset) failures.push(`voice starts at ${onset.toFixed(2)}s (limit ${HOOK_LIMITS.maxVoiceOnset}s)`);
-  const firstCue = Array.isArray(cues) && cues.length ? cues[0].start : null;
-  if (!Number.isFinite(firstCue)) failures.push('no caption cue found');
-  else if (firstCue > HOOK_LIMITS.maxFirstCaption) failures.push(`first caption appears at ${firstCue.toFixed(2)}s (limit ${HOOK_LIMITS.maxFirstCaption}s)`);
-  if (!frames) failures.push('opening frames could not be analyzed');
-  else {
-    if (frames.mean < HOOK_LIMITS.minFirstFrameMean) failures.push(`first frame is almost black (mean ${frames.mean.toFixed(1)})`);
-    if (frames.stddev < HOOK_LIMITS.minFirstFrameStddev) failures.push(`first frame has no visible structure (contrast ${frames.stddev.toFixed(1)})`);
-    if (frames.motion < HOOK_LIMITS.minOpeningMotion) failures.push(`picture is static during the first ${HOOK_WINDOW_SECONDS}s (motion ${frames.motion.toFixed(2)})`);
-  }
-  if (failures.length) return { passed: false, message: `Hook window failed: ${failures.join('; ')}` };
-  return {
-    passed: true,
-    message: `Hook ok: voice at ${onset.toFixed(2)}s, caption at ${firstCue.toFixed(2)}s, first frame contrast ${frames.stddev.toFixed(1)}, opening motion ${frames.motion.toFixed(2)}`
-  };
-}
-
-/** Captions must follow the voice: start with it, end with it, stay ordered and readable. */
-function evaluateCaptionSync({ speech, cues }) {
-  if (!speech || !Array.isArray(cues) || !cues.length) return { passed: false, message: 'Captions or speech window could not be read' };
-  const problems = [];
-  const first = cues[0];
-  const last = cues[cues.length - 1];
-  if (Math.abs(first.start - speech.speechStart) > 0.5) problems.push(`first caption at ${first.start.toFixed(2)}s but the voice starts at ${speech.speechStart.toFixed(2)}s`);
-  if (Math.abs(last.end - speech.speechEnd) > 1.0) problems.push(`last caption ends at ${last.end.toFixed(2)}s but the voice ends at ${speech.speechEnd.toFixed(2)}s`);
-  for (let i = 0; i < cues.length; i += 1) {
-    const cue = cues[i];
-    if (cue.end - cue.start < 0.25 || cue.end - cue.start > 5) { problems.push(`cue ${i + 1} lasts ${(cue.end - cue.start).toFixed(2)}s`); break; }
-    if (i > 0 && cue.start < cues[i - 1].end - 0.03) { problems.push(`cue ${i + 1} overlaps the previous cue`); break; }
-  }
-  return problems.length
-    ? { passed: false, message: `Caption sync failed: ${problems.join('; ')}` }
-    : { passed: true, message: `${cues.length} captions follow the voice (${first.start.toFixed(2)}s to ${last.end.toFixed(2)}s)` };
-}
-
-module.exports = {
-  HOOK_WINDOW_SECONDS, HOOK_LIMITS, detectSpeechWindow, buildCaptionCues, cuesToSrt, parseSrt,
-  analyzeOpeningFrames, evaluateHook, evaluateCaptionSync, formatSrtTime
-};
+module.exports = { detectSpeechWindow, buildCaptionCues, cuesToSrt, formatSrtTime };

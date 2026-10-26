@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const { Logger } = require('../utils/logger');
 const channelIdentity = require('../utils/channel-identity');
-const { isLive, pruneOutput, steadyCadence, maxPerDay } = require('../utils/dark-history/live');
+const { pruneOutput, steadyCadence, maxPerDay } = require('../utils/dark-history/live');
 const { StoryPool } = require('../utils/dark-history/story-pool');
 const { YieldStats } = require('../utils/dark-history/yield-stats');
 
@@ -28,6 +28,7 @@ class DailyAutomation {
     this.lastHealthCheck = null;
     this.generateContent = options.generateContent || null;
     this.engagement = options.engagement || null;
+    this.aiText = options.aiText || null;
     this.experiments = options.experiments || null;
     this.readiness = options.readiness || null;
     // Alert channel (OperatorService.notify: dashboard + Telegram, with dedupe). Optional; never blocks work.
@@ -46,8 +47,19 @@ class DailyAutomation {
     return run;
   }
 
+  /** Shorts kept scheduled ahead (DARK_HISTORY_QUEUE_AHEAD, default 5): the value the running process uses. */
+  queueAhead() {
+    return Math.max(1, Number(process.env.DARK_HISTORY_QUEUE_AHEAD) || DEFAULT_QUEUE_AHEAD);
+  }
+
+  /** What the dashboard and the startup log show for Dark History (the live values, not the file). */
+  darkHistorySettings() {
+    return { queueAhead: this.queueAhead(), maxAttemptsPerSlot: MAX_ATTEMPTS_PER_SLOT(), maxPerDay: maxPerDay() };
+  }
+
   async initialize() {
     this.logger.info('Initializing daily automation scheduler...');
+    this.logger.info(`Dark History settings in use: ${JSON.stringify(this.darkHistorySettings())}`);
     
     await this.setupScheduledTasks();
     
@@ -59,18 +71,14 @@ class DailyAutomation {
   }
 
   async setupScheduledTasks() {
-    // Check the quality-gated Horror Shorts cadence every two hours.
-    // The pacing gate (channel-identity target per day x 7, 21/week = 3/day), not cron frequency, decides whether a new Short is due.
-    // With Dark History live the check runs only at the slots; a failed slot is retried at the next one (the pacing gate stays).
+    // The Dark History check runs at the slots (hourly, minute 40); a failed slot is retried at the next one. The cadence (3 a day at most), not the cron, decides whether a Short is due.
     const slotCron = String(process.env.DARK_HISTORY_SLOT_CRON || '').trim();
     const generationTick = async () => {
       if (this.isEnabled) {
-        await this.inLlmLane(() => (isLive() ? this.runLiveSlot() : this.runDailyContentGeneration()));
+        await this.inLlmLane(() => this.runLiveSlot());
       }
     };
-    this.scheduledTasks.set('cadence-content-generation', isLive()
-      ? cron.schedule(cron.validate(slotCron) ? slotCron : DEFAULT_SLOT_CRON, generationTick, { scheduled: false })
-      : cron.schedule('0 */2 * * *', generationTick, { scheduled: false }));
+    this.scheduledTasks.set('cadence-content-generation', cron.schedule(cron.validate(slotCron) ? slotCron : DEFAULT_SLOT_CRON, generationTick, { scheduled: false }));
 
     // Publishing queue processing every 15 minutes
     this.scheduledTasks.set('publish-queue-processing',
@@ -153,24 +161,26 @@ class DailyAutomation {
     );
 
     // Start all scheduled tasks
-    // Dark History story pool (off unless DARK_HISTORY_POOL_ENABLED=true; nothing in the fiction path reads it).
-    // (Dark History live implies the refill: without it the pool would run dry.)
-    if (process.env.DARK_HISTORY_POOL_ENABLED === 'true' || isLive()) {
-      this.scheduledTasks.set('story-pool-refill',
-        cron.schedule('15 * * * *', async () => {
-          if (this.isEnabled) await this.inLlmLane(() => this.refillStoryPool());
-        }, { scheduled: false })
-      );
-    }
+    // The story pool refill (hourly): without it the pool would run dry.
+    this.scheduledTasks.set('story-pool-refill',
+      cron.schedule('15 * * * *', async () => {
+        if (this.isEnabled) await this.inLlmLane(() => this.refillStoryPool());
+      }, { scheduled: false })
+    );
 
     // Dark History: an alert (nothing else changes) when fewer than two Shorts are published or scheduled for today by 18:00 UTC.
-    if (isLive()) {
-      this.scheduledTasks.set('dark-history-daily-output',
-        cron.schedule('0 18 * * *', async () => {
-          if (this.isEnabled) await this.checkDailyOutput();
-        }, { scheduled: false, timezone: 'UTC' })
-      );
-    }
+    this.scheduledTasks.set('dark-history-daily-output',
+      cron.schedule('0 18 * * *', async () => {
+        if (this.isEnabled) await this.checkDailyOutput();
+      }, { scheduled: false, timezone: 'UTC' })
+    );
+
+    // Mondays 07:25 UTC (between the other jobs): the weekly Analytics report, one notification, nothing else changes.
+    this.scheduledTasks.set('dark-history-weekly-report',
+      cron.schedule('25 7 * * 1', async () => {
+        if (this.isEnabled) await this.weeklyAnalyticsReport();
+      }, { scheduled: false, timezone: 'UTC' })
+    );
 
     this.scheduledTasks.forEach((task, name) => {
       task.start();
@@ -294,13 +304,11 @@ class DailyAutomation {
     const last = await this.db.getSetting('last_content_generation');
     if (!last) return null;
     let target = Math.max(1, Math.min(35, Number(strategy.cadence_per_week || ((channelIdentity.publishingCadence?.shortsPerDay?.target || 3) * 7))));
-    if (isLive()) {
-      // Dark History: an empty pool is a wait for the refill (it has its own alert, story_pool_low), not a stall of the scheduler.
-      this.storyPool = this.storyPool || new StoryPool(this.db);
-      const steady = await steadyCadence(this.storyPool, target);
-      if (steady.empty) return null;
-      target = steady.perWeek;
-    }
+    // An empty pool is a wait for the refill (it has its own alert, story_pool_low), not a stall of the scheduler.
+    this.storyPool = this.storyPool || new StoryPool(this.db);
+    const steady = await steadyCadence(this.storyPool, target);
+    if (steady.empty) return null;
+    target = steady.perWeek;
     const limitHours = Math.max(Number(process.env.PRODUCTION_STALL_HOURS || 16), 2 * (7 * 24) / target);
     const hours = (Date.now() - new Date(last).getTime()) / 3600000;
     if (!(hours >= limitHours)) return null;
@@ -341,6 +349,25 @@ class DailyAutomation {
     return { day, count, alerted: true };
   }
 
+  /** Views, retention at 40 % and subscribers per Short against the baseline (read-only on YouTube; the text is kept in the settings and sent once). */
+  async weeklyAnalyticsReport(now = new Date()) {
+    const analytics = this.agents.analytics?.youtubeAnalytics;
+    if (!analytics) return null;
+    try {
+      const { runWeeklyReport } = require('../utils/dark-history/weekly-report');
+      const report = await runWeeklyReport({ db: this.db, analytics, now });
+      const day = now.toISOString().slice(0, 10);
+      await this.db.setSetting(`dh_weekly_report:${day}`, JSON.stringify(report.data), 'Dark History weekly Analytics report');
+      if (typeof this.notify === 'function') {
+        await this.notify({ type: 'dark_history_weekly_report', level: 'info', title: `Dark History weekly report ${day}`, message: report.text, data: report.data, dedupeKey: `dark_history_weekly_report:${day}`, dedupeMinutes: 1440 });
+      }
+      return report;
+    } catch (error) {
+      this.logger.error(`Weekly Analytics report failed: ${error.message}`);
+      return null;
+    }
+  }
+
   /** Shorts that are scheduled and not yet published. */
   async scheduledAhead() {
     const rows = await this.db.getAllRows("SELECT COUNT(*) AS n FROM publish_schedule WHERE status = 'scheduled' AND publish_time > ?", [new Date().toISOString()]);
@@ -352,67 +379,36 @@ class DailyAutomation {
     const channelStrategy = this.db.getChannelStrategy ? await this.db.getChannelStrategy() : null;
     if (channelStrategy?.status === 'active') {
       let target = Math.max(1, Math.min(35, Number(channelStrategy.cadence_per_week || ((channelIdentity.publishingCadence?.shortsPerDay?.target || 3) * 7))));
-      if (isLive()) {
-        // Dark History: a steady cadence (at most 3 a day), whatever the pool holds. Only a pool with nothing ready waits for the refill; quality is never lowered to fill the day.
-        this.storyPool = this.storyPool || new StoryPool(this.db);
-        const steady = await steadyCadence(this.storyPool, target);
-        if (steady.empty) {
-          this.lastSkipReason = 'the Dark History story pool is empty (0 stories ready); production waits for the refill job';
-          return false;
-        }
-        target = steady.perWeek;
+      // A steady cadence (at most 3 a day), whatever the pool holds. Only a pool with nothing ready waits for the refill; quality is never lowered to fill the day.
+      this.storyPool = this.storyPool || new StoryPool(this.db);
+      const steady = await steadyCadence(this.storyPool, target);
+      if (steady.empty) {
+        this.lastSkipReason = 'the Dark History story pool is empty (0 stories ready); production waits for the refill job';
+        return false;
       }
-      // Live: only Dark History Shorts count against the week (the stickman Shorts of the days before the switch made the count 16 of 15 and stopped production).
-      const weeklyRows = await this.db.getAllRows(
-        `SELECT details FROM generation_jobs
-         WHERE status = 'completed'
-         AND created_at >= datetime('now', '-7 days')${isLive() ? " AND style = 'documentary'" : ''}`
-      );
-      const completed = weeklyRows.filter(row => {
-        try {
-          const details = typeof row.details === 'string' ? JSON.parse(row.details || '{}') : (row.details || {});
-          return ['needs_review', 'approved'].includes(details.reviewStatus);
-        } catch (_error) {
-          return false;
-        }
-      }).length;
-      // Live: production runs AHEAD of publication, so a week of Shorts MADE is not a week of Shorts PUBLISHED. A weekly count of made Shorts stopped production for 41
+      target = steady.perWeek;
+      // Production runs AHEAD of publication, so a week of Shorts MADE is not a week of Shorts PUBLISHED. A weekly count of made Shorts stopped production for 41
       // checks (10-14 15:40 to 10-16) after a catch-up burst filled the week while the queue ran down. What bounds production is the queue below, a runaway guard of
       // twice the daily maximum in 24 h, and the 8 hour publish gate at upload time.
-      if (isLive()) {
-        const dayRows = await this.db.getAllRows(
-          `SELECT details FROM generation_jobs
-           WHERE status = 'completed' AND created_at >= datetime('now', '-1 day') AND style = 'documentary'`
-        );
-        const madeToday = dayRows.filter(row => ['needs_review', 'approved'].includes((typeof row.details === 'string' ? safeJson(row.details) : row.details || {}).reviewStatus)).length;
-        if (madeToday >= maxPerDay() * 2) {
-          this.lastSkipReason = `runaway guard: ${madeToday} Shorts were made in the last 24 h (limit ${maxPerDay() * 2})`;
-          return false;
-        }
-      } else if (completed >= target) {
-        this.lastSkipReason = `weekly target reached (${completed}/${target} Shorts in the last 7 days)`;
+      const dayRows = await this.db.getAllRows(
+        `SELECT details FROM generation_jobs
+         WHERE status = 'completed' AND created_at >= datetime('now', '-1 day') AND style = 'documentary'`
+      );
+      const madeToday = dayRows.filter(row => {
+        const details = typeof row.details === 'string' ? safeJson(row.details) : (row.details || {});
+        return ['needs_review', 'approved'].includes(details.reviewStatus);
+      }).length;
+      if (madeToday >= maxPerDay() * 2) {
+        this.lastSkipReason = `runaway guard: ${madeToday} Shorts were made in the last 24 h (limit ${maxPerDay() * 2})`;
         return false;
       }
 
-      if (isLive()) {
-        // Dark History produces AHEAD: while fewer than DARK_HISTORY_QUEUE_AHEAD Shorts are scheduled, a Short is made at every check (the weekly target above and
-        // the publish cadence guard still bound what is published); with the queue full nothing is spent.
-        const ahead = Math.max(1, Number(process.env.DARK_HISTORY_QUEUE_AHEAD) || DEFAULT_QUEUE_AHEAD);
-        const queued = await this.scheduledAhead();
-        if (queued >= ahead) {
-          this.lastSkipReason = `queue full: ${queued} Shorts are scheduled (target ${ahead}, about ${Math.round(queued * 168 / target)} h ahead)`;
-          return false;
-        }
-        return true;
-      }
-
-      const lastGeneration = await this.db.getSetting('last_content_generation');
-      if (!lastGeneration) return true;
-
-      const elapsedHours = (Date.now() - new Date(lastGeneration).getTime()) / 3600000;
-      const pacingHours = (7 * 24) / target;
-      if (elapsedHours < pacingHours) {
-        this.lastSkipReason = `pacing: next Short is due in ${(pacingHours - elapsedHours).toFixed(1)} h (one every ${pacingHours.toFixed(1)} h)`;
+      // Dark History produces AHEAD: while fewer than DARK_HISTORY_QUEUE_AHEAD Shorts are scheduled, a Short is made at every check (the weekly target above and
+      // the publish cadence guard still bound what is published); with the queue full nothing is spent.
+      const ahead = this.queueAhead();
+      const queued = await this.scheduledAhead();
+      if (queued >= ahead) {
+        this.lastSkipReason = `queue full: ${queued} Shorts are scheduled (target ${ahead}, about ${Math.round(queued * 168 / target)} h ahead)`;
         return false;
       }
       return true;
@@ -625,7 +621,7 @@ class DailyAutomation {
       const strategy = (this.db.getChannelStrategy ? await this.db.getChannelStrategy() : null) || {};
       const perWeek = Math.max(1, Math.min(35, Number(strategy.cadence_per_week || ((channelIdentity.publishingCadence?.shortsPerDay?.target || 3) * 7))));
       this.storyPool = this.storyPool || new StoryPool(this.db);
-      const llm = this.agents.strategy?.aiTextService;
+      const llm = this.aiText;
       const result = await refillPool({
         pool: this.storyPool, judge: llm ? makeLlmJudge(llm) : null, visionJudge: llm ? makeVisionJudge(llm) : null, notify: this.notify, perWeek,
         imageDir: path.join(__dirname, '..', 'data', 'story-pool'), logger: this.logger

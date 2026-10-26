@@ -11,7 +11,6 @@ const { YieldStats } = require('../utils/dark-history/yield-stats');
 const silent = { info() {}, warn() {}, error() {}, success() {}, startTimer: () => ({ end() {} }) };
 
 (async () => {
-  process.env.DARK_HISTORY_LIVE = 'true';
   delete process.env.DARK_HISTORY_MAX_ATTEMPTS_PER_SLOT;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slot-'));
   const db = new Database();

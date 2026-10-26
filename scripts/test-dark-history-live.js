@@ -1,4 +1,4 @@
-// Offline proof for the Dark History switch (DARK_HISTORY_LIVE), on a real SQLite file and real FFmpeg renders with stand-in photos
+// Offline proof for the Dark History path, on a real SQLite file and real FFmpeg renders with stand-in photos
 // and a generated tone (no network, no TTS, no LLM, no YouTube):
 //  - flag OFF: the scheduler path is the old one; the pool, the documentary code and the new gates are never touched
 //  - flag ON: a pool story becomes a scheduled Short through the existing quality checks + the documentary gate; every failure
@@ -14,10 +14,7 @@ process.env.APPROVAL_REQUIRED = 'false';
 process.env.AUTONOMOUS_MODE = 'true';
 process.env.YOUTUBE_UPLOAD_ENABLED = 'true';
 process.env.LOCAL_TTS_COMMAND = '/opt/piper/bin/python3 -m piper -m en_US-ryan-high --data-dir /opt/voices --input-file {text} -f {wav}';
-delete process.env.DARK_HISTORY_LIVE;
 delete process.env.DARK_HISTORY_VOICE;
-// the VM's .env sets the pool horizon (10 days) and dotenv never overrides a set variable: the pool arithmetic below is written for the default 14 days
-process.env.DARK_HISTORY_POOL_HORIZON_DAYS = '14';
 
 const { Database } = require('../database/db');
 const { YouTubeAutomationAgent } = require('../index');
@@ -28,11 +25,10 @@ const { ProductionReadinessService } = require('../utils/production-readiness-se
 const { runFFmpeg, checkFFmpeg } = require('../utils/ffmpeg');
 const { softPhoto, rescaledCopy } = require('./lib/stand-in-photos');
 const { StoryPool } = require('../utils/dark-history/story-pool');
-const { isLive, isDocumentary, buildProductionData } = require('../utils/dark-history/live');
+const { isDocumentary, buildProductionData } = require('../utils/dark-history/live');
 // index.js calls dotenv, which puts the keys of a local .env (the VM's) back into the environment: remove the vision key again AFTER the requires,
 // otherwise the footage check sends the stand-in pictures to the real Mistral model (found on the first deploy after the key was configured).
 delete process.env.MISTRAL_API_KEY;
-delete process.env.DARK_HISTORY_LIVE;
 const { attributionText } = require('../utils/dark-history/attribution');
 const { produceDocumentaryShort } = require('../utils/dark-history/produce');
 
@@ -105,12 +101,6 @@ function makeLlm(mode = { writer: 'ok' }) {
   await db.initialize();
   const pool = new StoryPool(db);
 
-  // ---- the switch ----
-  assert.strictEqual(isLive({}), false, 'default is off');
-  for (const value of ['', 'false', '1', 'yes', 'on', 'TRUE ']) assert.strictEqual(isLive({ DARK_HISTORY_LIVE: value }), value.trim().toLowerCase() === 'true');
-  assert.strictEqual(isLive({ DARK_HISTORY_LIVE: 'true' }), true);
-  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(__dirname, '..', '.env.example'), 'utf8').split('\n').filter(line => /^DARK_HISTORY_LIVE=/.test(line)).map(line => JSON.stringify(line.split('=')[1]))[0]), 'false', '.env.example ships with the switch off');
-
   // ---- pool: a failed story goes back, three failures reject it (with the reason), a cancel is not its fault ----
   const sample = await addToPool(pool, await makeStory(dir, 'Pool Sample'));
   const claimed = await pool.claimNext();
@@ -164,7 +154,7 @@ function makeLlm(mode = { writer: 'ok' }) {
   for (const id of ['dh_footage_per_beat', 'dh_no_near_duplicate_images', 'dh_image_hold_limit', 'dh_images_fit_narration', 'dh_image_files_intact', 'dh_license_free_per_image', 'dh_claims_map_to_source', 'dh_attribution_in_description', 'dh_description_survives_upload', 'dh_voice_public_domain', 'dh_video_format', 'media_provenance', 'visual_diversity', 'media_attribution', 'provenance', 'narration', 'captions', 'thumbnail', 'video_file', 'av_sync']) {
     assert.ok(ids.includes(id), `check ${id} ran`);
   }
-  assert.ok(!ids.some(id => /^horror_/.test(id)), 'no stickman check applies to a documentary');
+  assert.ok(!ids.some(id => /^horror_/.test(id)), 'no check of the old pipeline exists any more');
 
   const clone = value => JSON.parse(JSON.stringify(value));
   const failsWith = async (mutate, id) => {
@@ -189,8 +179,6 @@ function makeLlm(mode = { writer: 'ok' }) {
 
   // ---- the orchestrator ----
   const notices = [];
-  const fiction = [];
-  const forbidden = name => async () => { fiction.push(name); throw new Error(`the old pipeline must not run: ${name}`); };
   const generator = { commands: [], async generateLocalCommandTTS(text, out, command) { this.commands.push(command); await tone(text, out); return out; } };
   const makeAgent = ({ llm, schedule = async p => ({ publishTime: '2026-10-08T10:00:00.000Z', productionId: p.id }), readiness = { assertReady: async () => ({}) } }) => {
     const agent = Object.create(YouTubeAutomationAgent.prototype);
@@ -198,13 +186,8 @@ function makeLlm(mode = { writer: 'ok' }) {
       logger: silent, db, activeJobs: new Map(), jobAbortControllers: new Map(), setupRequired: false, readiness,
       operator: Object.assign(new OperatorService(db), { notify: async n => { notices.push(n); return 'n'; } }),
       provenance: new ProvenanceService(db), discoverability: null, storyPool: new StoryPool(db),
-      autonomous: { start: forbidden('autonomous.start') },
+      aiText: llm, tts: generator,
       agents: {
-        strategy: { aiTextService: llm, generateContentStrategy: forbidden('strategy.generateContentStrategy'), researchAndPlanChannel: forbidden('strategy.researchAndPlanChannel') },
-        scriptWriter: { generateScript: forbidden('scriptWriter.generateScript') },
-        thumbnailDesigner: { generateThumbnail: forbidden('thumbnailDesigner.generateThumbnail') },
-        seoOptimizer: { optimize: forbidden('seoOptimizer.optimize') },
-        production: { aiVideoGenerator: generator, processContent: forbidden('production.processContent') },
         publishing: { scheduleContent: async p => { agent.scheduled.push(p); return schedule(p); } }
       },
       scheduled: []
@@ -212,29 +195,8 @@ function makeLlm(mode = { writer: 'ok' }) {
     return agent;
   };
 
-  // flag OFF: the old path is what runs; the pool and the documentary code are not touched
+  // success
   {
-    process.env.DARK_HISTORY_LIVE = 'false';
-    await addToPool(pool, await makeStory(dir, 'Untouched Story'));
-    const calls = [];
-    const agent = makeAgent({ llm: makeLlm() });
-    agent.startGenerationJob = async input => { calls.push(['startGenerationJob', input.source]); return { id: 'old-job' }; };
-    const job = await agent.queueScheduledContent({ source: 'scheduler' });
-    assert.strictEqual(job.id, 'old-job');
-    assert.deepStrictEqual(calls, [['startGenerationJob', 'scheduler']], 'flag off: the old generation job starts');
-    assert.strictEqual(await pool.readyCount(), 1, 'flag off: the pool is untouched');
-    assert.strictEqual((await db.getAllRows("SELECT id FROM generation_jobs WHERE style = 'documentary'")).length, 0);
-    assert.deepStrictEqual(fiction, []);
-    // the old pipeline entry point does not know the documentary one
-    const refusing = Object.create(YouTubeAutomationAgent.prototype);
-    refusing.db = db;
-    assert.ok(typeof refusing.generateDocumentaryContent === 'function' && typeof refusing.startDocumentaryJob === 'function');
-    await db.executeQuery("UPDATE story_pool SET status = 'rejected' WHERE title = 'Untouched Story'");
-  }
-
-  // flag ON: success
-  {
-    process.env.DARK_HISTORY_LIVE = 'true';
     await addToPool(pool, await makeStory(dir, 'Live Story'));
     const llm = makeLlm();
     const agent = makeAgent({ llm });
@@ -245,7 +207,6 @@ function makeLlm(mode = { writer: 'ok' }) {
     assert.strictEqual(done.details.reviewStatus, 'approved');
     assert.strictEqual(done.topic, 'Live Story', 'the story title is the job topic (the duplicate check reads it)');
     assert.ok(await db.getSetting('last_content_generation'), 'a finished Short moves the pacing clock');
-    assert.deepStrictEqual(fiction, [], 'nothing of the old pipeline ran');
     assert.strictEqual(agent.scheduled.length, 1);
     assert.strictEqual(agent.scheduled[0].strategy.pipeline, 'dark-history');
     assert.match(generator.commands[generator.commands.length - 1], /-m en_US-ljspeech-high /, 'the public-domain voice narrated, not the configured ryan voice');
@@ -259,16 +220,14 @@ function makeLlm(mode = { writer: 'ok' }) {
     // the stored production passes the same checks again right before an upload (publisher verifies the bundle from the database)
     const again = await new OperatorService(db).runQualityChecks(bundle, {}, { excludeProductionId: bundle.id });
     assert.strictEqual(again.passed, true, JSON.stringify(again.checks.filter(c => !c.passed)));
-    // manual / API generation follows the switch (no way to make an old-style Short while live)
+    // manual / API generation makes a Dark History Short as well
     await addToPool(pool, await makeStory(dir, 'Manual Story'));
     const manual = await agent.startGenerationJob({ source: 'manual' });
     assert.strictEqual((await agent.waitForGenerationJob(manual.id)).status, 'completed');
-    assert.deepStrictEqual(fiction, []);
   }
 
-  // flag ON: every failure keeps the gate, returns the story, alerts with the cause, never falls back
+  // every failure keeps the gate, returns the story, alerts with the cause, never falls back
   {
-    process.env.DARK_HISTORY_LIVE = 'true';
     notices.length = 0;
     const before = await db.getSetting('last_content_generation');
     await addToPool(pool, await makeStory(dir, 'Failing Story'));
@@ -284,7 +243,6 @@ function makeLlm(mode = { writer: 'ok' }) {
       assert.deepStrictEqual([row.status, row.attempts], [['ready', 'quarantine', 'rejected'][attempt - 1], attempt]);
       assert.strictEqual(await db.getSetting('last_content_generation'), before, 'a failure does not move the pacing clock');
     }
-    assert.deepStrictEqual(fiction, [], 'a failed Dark History production never falls back to the old pipeline');
     assert.strictEqual(agent.scheduled.length, 0, 'nothing weaker was scheduled');
     const alerts = notices.filter(n => n.type === 'documentary_failure');
     assert.ok(alerts.length >= 3 && alerts.every(n => n.level === 'error' && /Failing Story/.test(n.message) && /no other kind of Short/.test(n.message) && n.dedupeKey));
@@ -400,7 +358,6 @@ function makeLlm(mode = { writer: 'ok' }) {
     assert.strictEqual(emptyDone.status, 'failed');
     assert.match(emptyDone.error, /story pool is empty/);
     assert.ok(notices.some(n => n.type === 'documentary_failure' && /story pool is empty/.test(n.message)));
-    assert.deepStrictEqual(fiction, []);
 
     // a voice that is not public domain stops the job BEFORE a story is claimed (a configuration problem must not burn stories)
     notices.length = 0;
@@ -417,9 +374,8 @@ function makeLlm(mode = { writer: 'ok' }) {
     await db.executeQuery("UPDATE story_pool SET status = 'rejected' WHERE title = 'Voice Story'");
   }
 
-  // flag ON: a restart or a resume never hands a documentary job to the old pipeline
+  // a restart or a resume: the story goes back to the pool, the job is never resumed
   {
-    process.env.DARK_HISTORY_LIVE = 'true';
     await addToPool(pool, await makeStory(dir, 'Restart Story'));
     const claimedRestart = await pool.claimNext();
     const stuck = await db.createGenerationJob({ topic: null, style: 'documentary', length: 'short', source: 'scheduler' });
@@ -434,12 +390,10 @@ function makeLlm(mode = { writer: 'ok' }) {
     assert.strictEqual((await db.getRow('SELECT status, attempts FROM story_pool WHERE id = ?', [claimedRestart.id])).attempts, 0, 'a restart is not the story\'s fault');
     assert.strictEqual((await db.getRow('SELECT status FROM story_pool WHERE id = ?', [claimedRestart.id])).status, 'ready');
     await assert.rejects(() => agent.resumeGenerationJob(stuck.id), error => error.status === 409 && /Dark History job is not resumed/.test(error.message));
-    assert.deepStrictEqual(fiction, []);
-    assert.strictEqual(await agent.resumeInterruptedAutonomousWork('startup'), null, 'while live nothing of the old planner is resumed');
     await db.executeQuery("UPDATE story_pool SET status = 'rejected' WHERE status = 'ready'");
   }
 
-  // ---- cadence: steady whatever the pool holds, an empty pool waits (and flag off ignores the pool) ----
+  // ---- cadence: steady whatever the pool holds, an empty pool waits ----
   {
     await db.executeQuery("UPDATE story_pool SET status = 'rejected'");
     const alreadyDone = (await db.getRow("SELECT COUNT(*) AS n FROM generation_jobs WHERE status = 'completed'")).n; // the two Shorts made above count too
@@ -458,10 +412,6 @@ function makeLlm(mode = { writer: 'ok' }) {
     scheduler.storyPool = pool;
     stored.last_content_generation = new Date(Date.now() - 30 * 3600000).toISOString();
 
-    process.env.DARK_HISTORY_LIVE = 'false';
-    assert.strictEqual(await scheduler.shouldGenerateContentToday(), true, 'flag off: 7 of 21 Shorts done, the pool does not matter');
-
-    process.env.DARK_HISTORY_LIVE = 'true';
     assert.strictEqual(await scheduler.shouldGenerateContentToday(), false);
     assert.match(scheduler.lastSkipReason, /story pool is empty/);
     await pool.add({ title: 'Stock 0', status: 'ready', plan: { beats: [] }, attribution: 'x' });
@@ -482,9 +432,6 @@ function makeLlm(mode = { writer: 'ok' }) {
     const stall = new DailyAutomation({}, dbStall, { notify: async n => alerts.push(n) });
     stall.logger = silent;
     stall.storyPool = pool;
-    process.env.DARK_HISTORY_LIVE = 'false';
-    assert.ok(await stall.checkProductionStall(), 'flag off: 40 h without a Short at 21 a week is a stall');
-    process.env.DARK_HISTORY_LIVE = 'true';
     alerts.length = 0;
     assert.strictEqual(await stall.checkProductionStall(), null, 'live with an empty pool: the pool alert speaks, not the stall alert');
     assert.strictEqual(alerts.length, 0);
@@ -494,29 +441,22 @@ function makeLlm(mode = { writer: 'ok' }) {
     await db.executeQuery("UPDATE story_pool SET status = 'rejected'");
   }
 
-  // ---- readiness: with the switch on the checks prove the documentary path, not the old image generator and cloud voice ----
+  // ---- readiness: the checks prove the documentary path (Wikimedia, FFmpeg render, local public-domain voice), not an image generator or a cloud voice ----
   {
     const seen = [];
     const probes = {
-      text: async () => ({ message: 'ok' }), image: async () => { seen.push('image'); return { message: 'ok' }; }, documentary: async () => { seen.push('documentary'); return { message: 'ok' }; },
-      videoProvider: async () => ({ message: 'ok' }), narration: async () => { seen.push('narration'); return { message: 'ok' }; },
+      text: async () => ({ message: 'ok' }), documentary: async () => { seen.push('documentary'); return { message: 'ok' }; }, narration: async () => { seen.push('narration'); return { message: 'ok' }; },
       videoAssembly: async () => ({ message: 'ok' }), youtube: async () => ({ message: 'ok' }), metadata: async () => ({ message: 'ok' })
     };
     const readiness = new ProductionReadinessService(db, { credentials: {} }, { probes, transientRetryDelayMs: 0 });
-    process.env.DARK_HISTORY_LIVE = 'false';
-    const off = await readiness.run();
-    assert.ok(seen.includes('image') && !seen.includes('documentary'));
-    assert.strictEqual(off.checks.find(c => c.id === 'image_provider').label, 'Dark Stickman image provider');
-    seen.length = 0;
-    process.env.DARK_HISTORY_LIVE = 'true';
     const on = await readiness.run();
-    assert.ok(seen.includes('documentary') && !seen.includes('image'));
+    assert.ok(seen.includes('documentary') && seen.includes('narration'));
+    assert.deepStrictEqual(on.checks.map(c => c.id), ['text_provider', 'image_provider', 'voice_narration', 'video_assembly', 'youtube_access', 'upload_metadata']);
     assert.match(on.checks.find(c => c.id === 'image_provider').label, /Documentary render/);
     assert.ok(on.checks.find(c => c.id === 'image_provider').blocking && on.checks.find(c => c.id === 'voice_narration').blocking);
     assert.strictEqual(on.status, 'passed');
   }
 
-  delete process.env.DARK_HISTORY_LIVE;
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_error) { /* the SQLite file is still open (Windows); the OS temp folder is cleaned later */ }
   console.log('dark-history live tests passed');
   process.exit(0);
