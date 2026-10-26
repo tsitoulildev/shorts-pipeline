@@ -55,7 +55,8 @@ Everything is configured through `.env` (copy `.env.example`; every key is expla
 | `DARK_HISTORY_MAX_ATTEMPTS_PER_SLOT` | Attempts in a row per hourly check while the queue is short (default 3, one at a time, the first success ends the check). A rate-limit limiter drops the next check to one attempt. One row per check is stored in `dh_hourly` (see `node scripts/dark-history-report.js 1`). |
 | `DARK_HISTORY_MAX_PER_DAY`, `DARK_HISTORY_FRESH_TARGET`, `DARK_HISTORY_REFILL_BATCH`, `DARK_HISTORY_POOL_LOW_READY` | At most 3 Shorts a day (the pool size never lowers it; an empty pool waits for the refill). The hourly refill researches `DARK_HISTORY_REFILL_BATCH` (12) candidates while fewer than `DARK_HISTORY_FRESH_TARGET` (30) untouched stories are ready. `story_pool_low` is an alert only, below `DARK_HISTORY_POOL_LOW_READY` (7) ready stories. |
 | `DARK_HISTORY_LIVE` | Makes every scheduled Short a Dark History Short (and runs the pool refill). Off by default; switching it back and restarting returns to the old path. |
-| `DARK_HISTORY_VOICE` | The narration voice, a public-domain Piper voice only (`en_US-ljspeech-high` by default). |
+| `DARK_HISTORY_VOICE` | The narration voice: a public-domain Piper voice (`en_US-ljspeech-high` by default) or `kokoro:am_adam` (Apache-2.0, needs `DARK_HISTORY_KOKORO_COMMAND`). |
+| `DARK_HISTORY_KOKORO_COMMAND` | Only for the Kokoro voice: python of the Kokoro environment, `scripts/kokoro-tts.py`, `--model-dir`, `--voice`, `{text}`, `{wav}`. |
 | `DARK_HISTORY_PRODUCTION_ENABLED` | Allows the manual render script to run. Off by default. |
 | `API_KEY` | Protects the local API. Use a long random value. |
 

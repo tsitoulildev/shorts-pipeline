@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { writeGroundedScript } = require('./grounded-writer');
 const { produceDocumentaryShort } = require('./produce');
-const { makeNarrator, narrationCommand } = require('./narration');
+const { makeNarrator, narrationModel } = require('./narration');
 const { pruneNearDuplicates } = require('./dhash');
 const { ensureFootageFit } = require('./footage-fit');
 const { makeVisionJudge } = require('./image-fit');
@@ -54,7 +54,7 @@ function buildProductionData({ id = `prod_${Date.now()}_${crypto.randomBytes(5).
   });
   const audio = {
     path: narrationPath, duration: result.render.speechWindow.duration, measuredDuration: result.render.speechWindow.duration, format: 'mp3',
-    generatedWith: 'local-tts', provider: 'local-tts', model: `piper:${voice}`, status: 'ready', quality: 'high', simulated: false, intentionalSilence: false,
+    generatedWith: 'local-tts', provider: 'local-tts', model: String(voice).includes(':') ? voice : `piper:${voice}`, status: 'ready', quality: 'high', simulated: false, intentionalSilence: false,
     generatedAt: created, cost: { provider: 'local-tts', amount: 0, currency: null, invoiceRequired: false }, error: null
   };
   return {
@@ -112,7 +112,7 @@ async function releaseAfterFailure(pool, storyId, title, error, { cancelled = fa
  * Checks that depend on no story (the voice) run BEFORE a story is claimed, so a configuration problem never burns stories.
  */
 async function produceOne({ pool, llm, generator, imageFit = null, workRoot = OUTPUT_DIR, env = process.env, signal = null, onStage = async () => {}, logger = console }) {
-  const voice = (narrationCommand(env).match(/-m (\S+)/g) || []).pop().slice(3);
+  const voice = narrationModel(env);
   let story = await pool.claimNext();
   if (!story) throw failure('STORY_POOL_EMPTY', 'the Dark History story pool is empty');
   const outDir = path.join(workRoot, `${story.plan.title.replace(/[^a-z0-9]+/gi, '_')}_${Date.now()}`);

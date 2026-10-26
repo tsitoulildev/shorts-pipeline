@@ -179,6 +179,9 @@ function makeLlm(mode = { writer: 'ok' }) {
   await failsWith(c => { c.seo.description = c.seo.description.replace(c.strategy.documentary.story.attribution, 'Images: various'); }, 'dh_attribution_in_description');
   await failsWith(c => { c.seo.description += '\u0007'; }, 'dh_description_survives_upload');
   await failsWith(c => { c.assets.audio.model = 'piper:en_US-ryan-high'; }, 'dh_voice_public_domain');
+  await failsWith(c => { c.assets.audio.model = 'kokoro:am_michael'; }, 'dh_voice_public_domain'); // a Kokoro voice that was not approved
+  const kokoroOk = clone(productionData); kokoroOk.assets.audio.model = 'kokoro:am_adam';
+  assert.ok(!(await operator.runQualityChecks(kokoroOk, {})).blockingFailures.includes('dh_voice_public_domain'), 'the approved Kokoro voice passes the voice check');
   await failsWith(c => { c.script.beats[1].narration += ' Forty-two sailors vanished.'; }, 'dh_claims_map_to_source');
   await failsWith(c => { delete c.strategy.documentary; }, 'dh_footage_per_beat');
   await failsWith(c => { c.assets.finalVideo.path = path.join(dir, 'missing.mp4'); }, 'dh_video_format');
@@ -410,7 +413,7 @@ function makeLlm(mode = { writer: 'ok' }) {
     const voicedJob = await voiced.queueScheduledContent({ source: 'scheduler' });
     const voicedDone = await voiced.waitForGenerationJob(voicedJob.id);
     assert.strictEqual(voicedDone.status, 'failed');
-    assert.match(voicedDone.error, /not an approved public-domain voice/);
+    assert.match(voicedDone.error, /not an approved free-licence voice/);
     assert.strictEqual((await db.getRow("SELECT status, attempts FROM story_pool WHERE title = 'Voice Story'")).status, 'ready');
     assert.strictEqual((await db.getRow("SELECT attempts FROM story_pool WHERE title = 'Voice Story'")).attempts, 0);
     delete process.env.DARK_HISTORY_VOICE;

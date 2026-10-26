@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { FREE_LICENSE } = require('./commons');
 const { checkFactsDeterministic } = require('./fact-check');
-const { PUBLIC_DOMAIN_VOICES } = require('./narration');
+const { APPROVED_VOICES } = require('./narration');
 const { distance, NEAR_DUPLICATE_BITS } = require('./dhash');
 const { MAX_IMAGE_SECONDS } = require('./documentary-render');
 const { normalizeYouTubeMetadata } = require('../youtube-metadata-validator');
@@ -79,10 +79,10 @@ function checkDocumentaryProduction({ story, script, description, video, audio, 
   // What YouTube receives is what was approved: the upload normalizer must not change or cut the description (credits included).
   add('description_survives_upload', Boolean(description) && normalizeYouTubeMetadata({ description }).description === description, 'the description reaches YouTube unchanged (line breaks and credits kept, within the length limit)');
 
-  // The voice: only a public-domain voice may narrate.
+  // The voice: only an approved free-licence voice may narrate (public-domain Piper, or the approved Kokoro voice).
   if (audio !== undefined) {
-    const voice = PUBLIC_DOMAIN_VOICES.find(name => String(audio?.model || '').endsWith(name));
-    add('voice_public_domain', Boolean(voice) && audio?.simulated !== true, voice ? `narrated with the public-domain voice ${voice}` : `narration voice "${audio?.model || 'unknown'}" is not an approved public-domain voice`);
+    const voice = APPROVED_VOICES.find(name => String(audio?.model || '').endsWith(name));
+    add('voice_public_domain', Boolean(voice) && audio?.simulated !== true, voice ? `narrated with the approved free-licence voice ${voice}` : `narration voice "${audio?.model || 'unknown'}" is not an approved free-licence voice`);
   }
 
   // Output sanity.
