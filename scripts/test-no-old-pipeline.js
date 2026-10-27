@@ -22,7 +22,17 @@ const walk = dir => {
     if (entry.isDirectory()) walk(full); else if (/\.(js|json|sh|yml)$/.test(entry.name)) files.push(full);
   }
 };
-walk(root);
+// Only what the repository tracks is the code base: a server keeps untracked leftovers (a one-off check script in artifacts/ on the VM stopped the 10-26 rollout), which are not ours to judge.
+let tracked = [];
+try { tracked = spawnSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' }).stdout.split('\0').filter(Boolean); } catch (_error) { tracked = []; }
+if (tracked.length) {
+  files.push(...tracked
+    .filter(name => /\.(js|json|sh|yml)$/.test(name) && !/(^|\/)(fixtures|data|logs|node_modules)\//.test(name))
+    .map(name => path.join(root, name))
+    .filter(file => fs.existsSync(file)));
+} else {
+  walk(root);
+}
 const rel = file => path.relative(root, file).split(path.sep).join('/');
 
 // 1. the files are gone, and no source names them (this test itself is the one place that lists them)
