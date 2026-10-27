@@ -2,8 +2,8 @@
 // ready to be turned into a Short. Backed by one SQLite table (created on first use).
 const crypto = require('crypto');
 
-// The pool is "low" (alert only, never a slower cadence) when fewer ready stories than this are left (about two days at 3 Shorts a day).
-const LOW_READY = Number(process.env.DARK_HISTORY_POOL_LOW_READY) > 0 ? Number(process.env.DARK_HISTORY_POOL_LOW_READY) : 7;
+// The pool is "low" (alert only, never a slower cadence) when fewer ready stories than this are left (about three days at 3 Shorts a day).
+const LOW_READY = Number(process.env.DARK_HISTORY_POOL_LOW_READY) > 0 ? Number(process.env.DARK_HISTORY_POOL_LOW_READY) : 10;
 // a story whose production failed this many times is rejected for good (with the last reason) instead of looping every tick
 const MAX_ATTEMPTS = 3;
 // after this many failures a story is parked ('quarantine') and only taken again when no fresh story is left and QUARANTINE_HOURS have passed

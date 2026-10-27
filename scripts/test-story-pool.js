@@ -27,7 +27,7 @@ const article = (extract, categories = []) => ({ extract, categories });
 
   // The pool only reports days of stock and a "low" flag (an alert); it has no say in the cadence.
   assert.strictEqual(poolDays(56, 28), 14);
-  assert.strictEqual(LOW_READY, 7);
+  assert.strictEqual(LOW_READY, 10);
 
   // The configured list is clean: unique titles, enough to fill a 14-day pool at 28/week once vetted.
   assert.strictEqual(new Set(config.events.map(e => e.toLowerCase())).size, config.events.length);

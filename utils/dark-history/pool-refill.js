@@ -172,4 +172,4 @@ async function refillPool({ pool, http = defaultHttp, judge, visionJudge = null,
   return { researched, budgetExhausted, llmCallsToday: spent, ...status };
 }
 
-module.exports = { refillPool, nextCandidates, researchOne };
+module.exports = { refillPool, nextCandidates, researchOne, FRESH_TARGET };
