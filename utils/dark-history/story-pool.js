@@ -73,15 +73,38 @@ class StoryPool {
     await this.ensure();
     let row;
     try {
-      row = await this.db.getRow("SELECT * FROM story_pool WHERE status = 'ready' ORDER BY attempts, COALESCE(json_extract(plan, '$.richness'), 0) DESC, created_at, rowid LIMIT 1");
+      row = await this.db.getRow("SELECT * FROM story_pool WHERE status = 'ready' ORDER BY attempts, CASE WHEN reason LIKE 'requeued (first)%' THEN 0 ELSE 1 END, COALESCE(json_extract(plan, '$.richness'), 0) DESC, created_at, rowid LIMIT 1");
     } catch (_error) { // an SQLite without JSON1: the order without the richness
-      row = await this.db.getRow("SELECT * FROM story_pool WHERE status = 'ready' ORDER BY attempts, created_at, rowid LIMIT 1");
+      row = await this.db.getRow("SELECT * FROM story_pool WHERE status = 'ready' ORDER BY attempts, CASE WHEN reason LIKE 'requeued (first)%' THEN 0 ELSE 1 END, created_at, rowid LIMIT 1");
     }
     if (row && !themeOf(row)) row = (await this.preferTheme(row)) || row;
     if (!row) row = await this.db.getRow("SELECT * FROM story_pool WHERE status = 'quarantine' AND used_at <= datetime('now', ?) ORDER BY attempts, used_at, rowid LIMIT 1", ['-' + QUARANTINE_HOURS + ' hours']);
     if (!row) return null;
     const { changes } = await this.db.executeQuery("UPDATE story_pool SET status = 'used', used_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('ready', 'quarantine')", [row.id]);
     return changes ? { ...row, plan: JSON.parse(row.plan), share_alike: Boolean(row.share_alike) } : this.claimNext();
+  }
+
+  /**
+   * Stories parked in quarantine that the changed code may now manage, to try ONE more time (the same gates). Tier A ("first"): the writer returned nothing usable
+   * (fixed by the evidence retry). Tier B: the fact-check failed and the story is rich (richness >= minRichness), richest first. Everything else stays parked.
+   * They come back as 'ready' with attempts = 1: behind every untouched story, with one failure left before they are parked again. apply = false only reports.
+   */
+  async requeueQuarantined({ apply = false, minRichness = 50, now = new Date() } = {}) {
+    await this.ensure();
+    const day = now.toISOString().slice(0, 10);
+    const rows = await this.db.getAllRows("SELECT id, title, reason, COALESCE(json_extract(plan, '$.richness'), 0) AS richness FROM story_pool WHERE status = 'quarantine' ORDER BY richness DESC, rowid");
+    const tierA = rows.filter(row => /no title\/beats/.test(row.reason || ''));
+    const tierB = rows.filter(row => !tierA.includes(row) && /fact-check/.test(row.reason || '') && row.richness >= minRichness);
+    const stays = rows.length - tierA.length - tierB.length;
+    if (apply) {
+      for (const [tier, list] of [['first', tierA], ['later', tierB]]) {
+        for (const row of list) {
+          await this.db.executeQuery("UPDATE story_pool SET status = 'ready', attempts = 1, used_at = NULL, reason = ? WHERE id = ? AND status = 'quarantine'",
+            [`requeued (${tier}) ${day}: ${String(row.reason || '').slice(0, 160)}`, row.id]);
+        }
+      }
+    }
+    return { applied: apply, quarantined: rows.length, tierA, tierB, stays };
   }
 
   /** The first story of the same attempt level that has a priority theme, unless 2 of the last 3 Shorts already had one (variety). null: keep \`row\`. */
