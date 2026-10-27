@@ -20,16 +20,82 @@ const FRESH_TARGET = Number(process.env.DARK_HISTORY_FRESH_TARGET) || 30;
 const REFILL_BATCH = Number(process.env.DARK_HISTORY_REFILL_BATCH) || 12; // candidates researched per hourly run (was 8 every 3 hours)
 const SKIP_TITLE = /^(list of|category:|template:|timeline of|outline of)/i;
 
-/** Titles from the vetted event list first, then members of the configured Wikipedia categories. */
-async function nextCandidates(known, limit, http, categories = config.categories) {
+// How much of Wikipedia one run may ask for (Wikimedia asks for polite, serial access): a run stops reading categories after this many requests.
+const MAX_REQUESTS_PER_RUN = Number(process.env.DARK_HISTORY_REFILL_MAX_REQUESTS) || 40;
+const CATEGORY_PAGE = 500; // members per request (the API maximum for a normal client)
+const MAX_SUBCATEGORY_DEPTH = Number(process.env.DARK_HISTORY_REFILL_SUBCATEGORY_DEPTH) || 2;
+const MAX_QUEUED_SUBCATEGORIES = 300;
+const SWEEP_RESTART_DAYS = 14; // when every category and subcategory has been read to the end, the sweep starts again after this long (new articles appear)
+const STATE_KEY = 'dh_refill_categories';
+
+/**
+ * Where each category was read up to: { nodes: { name: { token, done, depth } }, queue: [subcategory names found], doneAt }. It lives in the settings table, so
+ * every run continues where the last one stopped instead of reading the same first page again.
+ */
+async function loadState(store) {
+  try { return { nodes: {}, queue: [], doneAt: null, ...(JSON.parse(await store.get(STATE_KEY)) || {}) }; } catch (_error) { return { nodes: {}, queue: [], doneAt: null }; }
+}
+
+/**
+ * Titles from the vetted event list first, then ALL members of the configured Wikipedia categories (a page of 500 at a time, continued with cmcontinue), then the
+ * subcategories the categories contain (depth limited). A page is marked as read only when every unknown title on it was handed out; the progress is saved.
+ * options: { store: { get(key), set(key, value) }, maxRequests, maxDepth, logger, now }. Without a store nothing is remembered (tests, one-off use).
+ */
+async function nextCandidates(known, limit, http, categories = config.categories, options = {}) {
   const out = config.events.filter(t => !known.has(t.toLowerCase())).slice(0, limit);
-  for (const category of categories) {
-    if (out.length >= limit) break;
-    const data = await http.getJson('https://en.wikipedia.org/w/api.php', { action: 'query', format: 'json', formatversion: 2, list: 'categorymembers', cmtitle: `Category:${category}`, cmnamespace: 0, cmlimit: 50 });
-    for (const member of data?.query?.categorymembers || []) {
-      if (out.length < limit && !known.has(member.title.toLowerCase()) && !SKIP_TITLE.test(member.title) && !out.includes(member.title)) out.push(member.title);
+  const store = options.store || null;
+  const maxRequests = options.maxRequests || MAX_REQUESTS_PER_RUN;
+  const maxDepth = options.maxDepth ?? MAX_SUBCATEGORY_DEPTH;
+  const now = options.now || new Date();
+  const state = store ? await loadState(store) : { nodes: {}, queue: [], doneAt: null };
+  let requests = 0;
+  const nodeOf = name => (state.nodes[name] = state.nodes[name] || { token: null, done: false, depth: 0 });
+  const roots = categories.map(name => { nodeOf(name); return name; });
+  // every category read to the end: the sweep waits SWEEP_RESTART_DAYS and starts again from the first page
+  const all = () => [...roots, ...state.queue];
+  if (all().every(name => nodeOf(name).done)) {
+    if (!state.doneAt) state.doneAt = now.toISOString();
+    if (now - new Date(state.doneAt) >= SWEEP_RESTART_DAYS * 86400000) { for (const name of all()) Object.assign(nodeOf(name), { token: null, done: false }); state.doneAt = null; }
+  }
+  const save = async () => { if (store) await store.set(STATE_KEY, JSON.stringify(state)); };
+
+  for (let index = 0; index < all().length; index += 1) { // the queue grows while subcategories are found
+    const name = all()[index];
+    if (out.length >= limit || requests >= maxRequests) break;
+    const node = nodeOf(name);
+    while (!node.done && out.length < limit && requests < maxRequests) {
+      let data;
+      try {
+        requests += 1;
+        data = await http.getJson('https://en.wikipedia.org/w/api.php', {
+          action: 'query', format: 'json', formatversion: 2, list: 'categorymembers', cmtitle: `Category:${name}`, cmnamespace: '0|14', cmtype: 'page|subcat', cmlimit: CATEGORY_PAGE,
+          ...(node.token ? { cmcontinue: node.token } : {})
+        });
+      } catch (error) {
+        // a rate limit or a network error: keep what this run has and the progress so far; the next run goes on from here
+        options.logger?.warn?.(`story pool: category "${name}" not read this run: ${error.message}`);
+        await save();
+        return out;
+      }
+      const members = data?.query?.categorymembers || [];
+      let taken = 0;
+      let leftOnPage = false;
+      for (const member of members) {
+        if (member.ns === 14 || /^Category:/i.test(member.title)) {
+          const sub = String(member.title).replace(/^Category:/i, '');
+          if (node.depth < maxDepth && !roots.includes(sub) && !state.queue.includes(sub) && state.queue.length < MAX_QUEUED_SUBCATEGORIES) { state.queue.push(sub); nodeOf(sub).depth = node.depth + 1; }
+          continue;
+        }
+        if (known.has(member.title.toLowerCase()) || SKIP_TITLE.test(member.title) || out.includes(member.title)) continue;
+        if (out.length < limit) { out.push(member.title); taken += 1; } else leftOnPage = true;
+      }
+      if (leftOnPage) break; // unread titles remain on this page: stay on it (the known titles are skipped next time)
+      const next = data?.continue?.cmcontinue || null;
+      if (next) node.token = next; else { node.done = true; node.token = null; }
+      void taken;
     }
   }
+  await save();
   return out;
 }
 
@@ -78,7 +144,7 @@ async function refillPool({ pool, http = defaultHttp, judge, visionJudge = null,
   const countingJudge = counted(judge);
   const countingVision = counted(visionJudge);
   if ((await pool.untouchedCount()) < FRESH_TARGET) {
-    for (const title of candidates || await nextCandidates(await pool.knownTitles(), maxAttempts, http)) {
+    for (const title of candidates || await nextCandidates(await pool.knownTitles(), maxAttempts, http, config.categories, { store: { get: key => pool.db.getSetting(key), set: (key, value) => pool.db.setSetting(key, value, 'Dark History refill progress per Wikipedia category') }, logger })) {
       if (spent >= dailyLlmCalls) { budgetExhausted = true; logger.warn?.(`story pool: daily LLM budget (${dailyLlmCalls} calls) spent, research resumes tomorrow`); break; }
       researched += 1;
       try {

@@ -13,11 +13,27 @@ async function polite() {
   last = Date.now();
 }
 
+// A rate limit (429) or a server error (5xx) is retried after the wait the server asks for (Retry-After, at most 30 s) or 2, 4, 8 s; then the error goes on.
+async function withBackoff(request, { retries = 3, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await request();
+    } catch (error) {
+      const status = error?.response?.status;
+      if (attempt >= retries || !(status === 429 || (status >= 500 && status < 600))) throw error;
+      const asked = Number(error.response.headers?.['retry-after']);
+      await sleep(Math.min(30000, Number.isFinite(asked) && asked > 0 ? asked * 1000 : 2000 * 2 ** attempt));
+    }
+  }
+}
+
 const defaultHttp = {
   async getJson(url, params) {
-    await polite();
-    const { data } = await axios.get(url, { params, headers: { 'User-Agent': USER_AGENT }, timeout: 20000 });
-    return data;
+    return withBackoff(async () => {
+      await polite();
+      const { data } = await axios.get(url, { params, headers: { 'User-Agent': USER_AGENT }, timeout: 20000 });
+      return data;
+    });
   },
   async getBuffer(url) {
     await polite();
@@ -26,4 +42,4 @@ const defaultHttp = {
   }
 };
 
-module.exports = { defaultHttp, USER_AGENT };
+module.exports = { defaultHttp, USER_AGENT, withBackoff };
