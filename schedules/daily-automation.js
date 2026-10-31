@@ -627,9 +627,40 @@ class DailyAutomation {
         imageDir: path.join(__dirname, '..', 'data', 'story-pool'), logger: this.logger
       });
       this.logger.info(`Story pool: ${result.ready} ready (${result.days.toFixed(1)} days), researched ${result.researched}`);
+      await this.trackRefillStall(result);
       return result;
     } catch (error) {
       this.logger.error(`Story pool refill failed: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * The queue alert does not see a refill that is stuck: on 2026-10-27 the pool had 0 untouched stories and the refill had researched 0 for days. Three runs in a row
+   * with researched 0 while fewer than FRESH_TARGET untouched stories are left = one alert (nothing else changes; a run stopped by the daily budget does not count).
+   */
+  async trackRefillStall(result) {
+    try {
+      const { FRESH_TARGET } = require('../utils/dark-history/pool-refill');
+      const untouched = await this.storyPool.untouchedCount();
+      if (result.budgetExhausted) return null;
+      const stuck = result.researched === 0 && untouched < FRESH_TARGET;
+      const streak = stuck ? (Number(await this.db.getSetting('dh_refill_zero_streak')) || 0) + 1 : 0;
+      await this.db.setSetting('dh_refill_zero_streak', String(streak), 'Dark History: refill runs in a row that researched nothing');
+      if (streak >= 3 && typeof this.notify === 'function') {
+        await this.notify({
+          type: 'story_pool_refill_stuck',
+          level: 'warning',
+          title: `Pool refill stuck: researched 0 in ${streak} runs in a row`,
+          message: `The hourly refill researched nothing in ${streak} runs in a row while only ${untouched} untouched stories are left (target ${FRESH_TARGET}); ${result.ready} stories are ready (${result.days.toFixed(1)} days). The cadence is NOT changed. Likely causes: every category is read to the end, Wikipedia answers 429, or the daily call budget. Check the journal lines "story pool:".`,
+          data: { streak, untouched, ready: result.ready },
+          dedupeKey: 'story_pool_refill_stuck',
+          dedupeMinutes: 720
+        });
+      }
+      return streak;
+    } catch (error) {
+      this.logger.warn?.(`Refill stall check failed: ${error.message}`);
       return null;
     }
   }
