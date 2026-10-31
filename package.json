@@ -35,7 +35,7 @@
     "ffmpeg-static": "^5.2.0"
   },
   "devDependencies": {
-    "@eslint/js": "9.39.4",
+    "@eslint/js": "10.0.1",
     "eslint": "9.39.4"
   },
   "engines": {
